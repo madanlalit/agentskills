@@ -42,7 +42,6 @@ Conduct thorough, constructive code reviews that identify issues, suggest improv
 ---
 
 ## Scope Control
-
 **CRITICAL: Scale review depth to change size.**
 
 | Scenario | Scope | Time |
