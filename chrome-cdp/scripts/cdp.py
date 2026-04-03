@@ -801,6 +801,443 @@ def evalraw_str(cdp: CDP, session_id: str, method: str, params_json: str | None)
     return json.dumps(result, indent=2)
 
 
+def wait_str(cdp: CDP, session_id: str, args: list[str]) -> str:
+    timeout_ms = 10000
+    gone = False
+    idle = False
+    selector: str | None = None
+
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--gone":
+            gone = True
+        elif arg == "--idle":
+            idle = True
+        elif arg == "--timeout":
+            i += 1
+            if i >= len(args):
+                raise CLIError("--timeout requires a value in ms")
+            timeout_ms = int(args[i])
+        elif selector is None:
+            selector = arg
+        i += 1
+
+    timeout_s = timeout_ms / 1000.0
+    deadline = time.monotonic() + timeout_s
+
+    if idle:
+        # Wait for network idle: no pending requests for 500ms
+        expression = """
+(() => {
+  const entries = performance.getEntriesByType('resource');
+  const recent = entries.filter(e => (performance.now() - (e.startTime + e.duration)) < 500);
+  return recent.length === 0;
+})()
+"""
+        while time.monotonic() < deadline:
+            try:
+                result = eval_str(cdp, session_id, expression)
+                if result.strip().lower() == "true":
+                    return "Network is idle"
+            except Exception:
+                pass
+            time.sleep(0.2)
+        raise CLIError(f"Timeout ({timeout_ms}ms): network did not become idle")
+
+    if not selector:
+        raise CLIError("Selector required (or use --idle)")
+
+    check = f"!!document.querySelector({json.dumps(selector)})"
+    while time.monotonic() < deadline:
+        try:
+            result = eval_str(cdp, session_id, check)
+            exists = result.strip().lower() == "true"
+            if gone and not exists:
+                return f'Element "{selector}" is gone'
+            if not gone and exists:
+                return f'Element "{selector}" found'
+        except Exception:
+            pass
+        time.sleep(0.15)
+
+    if gone:
+        raise CLIError(f'Timeout ({timeout_ms}ms): "{selector}" still present')
+    raise CLIError(f'Timeout ({timeout_ms}ms): "{selector}" not found')
+
+
+def scroll_str(cdp: CDP, session_id: str, args: list[str]) -> str:
+    selector: str | None = None
+    direction = "down"
+    amount: int | None = None
+
+    # Parse: [selector] <direction> [amount]
+    # direction is one of: up, down, left, right, top, bottom
+    directions = {"up", "down", "left", "right", "top", "bottom"}
+    remaining = list(args)
+    for i, arg in enumerate(remaining):
+        if arg in directions:
+            direction = arg
+            # Everything before is the selector
+            if i > 0:
+                selector = " ".join(remaining[:i])
+            # Next arg (if any) is the amount
+            if i + 1 < len(remaining):
+                try:
+                    amount = int(remaining[i + 1])
+                except ValueError:
+                    raise CLIError(f"Invalid scroll amount: {remaining[i + 1]}")
+            break
+    else:
+        # No direction found; treat all args as selector + default direction
+        if remaining:
+            raise CLIError("Direction required (up/down/left/right/top/bottom)")
+
+    if direction == "top":
+        scroll_js = "el.scrollTo({top: 0, behavior: 'instant'})"
+    elif direction == "bottom":
+        scroll_js = "el.scrollTo({top: el.scrollHeight, behavior: 'instant'})"
+    elif direction == "up":
+        px = amount if amount is not None else "Math.round(el.clientHeight * 0.85)"
+        scroll_js = f"el.scrollBy({{top: -({px}), behavior: 'instant'}})"
+    elif direction == "down":
+        px = amount if amount is not None else "Math.round(el.clientHeight * 0.85)"
+        scroll_js = f"el.scrollBy({{top: {px}, behavior: 'instant'}})"
+    elif direction == "left":
+        px = amount if amount is not None else "Math.round(el.clientWidth * 0.85)"
+        scroll_js = f"el.scrollBy({{left: -({px}), behavior: 'instant'}})"
+    elif direction == "right":
+        px = amount if amount is not None else "Math.round(el.clientWidth * 0.85)"
+        scroll_js = f"el.scrollBy({{left: {px}, behavior: 'instant'}})"
+    else:
+        scroll_js = ""
+
+    if selector:
+        expression = f"""
+(() => {{
+  const el = document.querySelector({json.dumps(selector)});
+  if (!el) return JSON.stringify({{ok: false, error: 'Element not found: ' + {json.dumps(selector)}}});
+  {scroll_js};
+  return JSON.stringify({{ok: true, scrollTop: Math.round(el.scrollTop), scrollLeft: Math.round(el.scrollLeft), scrollHeight: el.scrollHeight}});
+}})()
+"""
+    else:
+        # Use documentElement as the scroll target
+        expression = f"""
+(() => {{
+  const el = document.documentElement;
+  {scroll_js};
+  return JSON.stringify({{ok: true, scrollTop: Math.round(el.scrollTop || window.scrollY), scrollLeft: Math.round(el.scrollLeft || window.scrollX), scrollHeight: el.scrollHeight}});
+}})()
+"""
+    raw = eval_str(cdp, session_id, expression)
+    result = json.loads(raw)
+    if not result.get("ok"):
+        raise CLIError(result.get("error", "Scroll failed"))
+    target = f'"{selector}"' if selector else "page"
+    return f"Scrolled {target} {direction}. scrollTop={result['scrollTop']} scrollHeight={result['scrollHeight']}"
+
+
+KEY_DEFINITIONS: dict[str, dict[str, str | int]] = {
+    "Enter":      {"key": "Enter", "code": "Enter", "keyCode": 13, "which": 13, "text": "\r"},
+    "Tab":        {"key": "Tab", "code": "Tab", "keyCode": 9, "which": 9},
+    "Escape":     {"key": "Escape", "code": "Escape", "keyCode": 27, "which": 27},
+    "Backspace":  {"key": "Backspace", "code": "Backspace", "keyCode": 8, "which": 8},
+    "Delete":     {"key": "Delete", "code": "Delete", "keyCode": 46, "which": 46},
+    "ArrowUp":    {"key": "ArrowUp", "code": "ArrowUp", "keyCode": 38, "which": 38},
+    "ArrowDown":  {"key": "ArrowDown", "code": "ArrowDown", "keyCode": 40, "which": 40},
+    "ArrowLeft":  {"key": "ArrowLeft", "code": "ArrowLeft", "keyCode": 37, "which": 37},
+    "ArrowRight": {"key": "ArrowRight", "code": "ArrowRight", "keyCode": 39, "which": 39},
+    "Home":       {"key": "Home", "code": "Home", "keyCode": 36, "which": 36},
+    "End":        {"key": "End", "code": "End", "keyCode": 35, "which": 35},
+    "PageUp":     {"key": "PageUp", "code": "PageUp", "keyCode": 33, "which": 33},
+    "PageDown":   {"key": "PageDown", "code": "PageDown", "keyCode": 34, "which": 34},
+    "Space":      {"key": " ", "code": "Space", "keyCode": 32, "which": 32, "text": " "},
+}
+
+MODIFIER_FLAGS = {"alt": 1, "ctrl": 2, "control": 2, "meta": 4, "cmd": 4, "command": 4, "shift": 8}
+
+
+def press_str(cdp: CDP, session_id: str, args: list[str]) -> str:
+    if not args:
+        raise CLIError("Key name required (e.g. Enter, Tab, Escape, a, ArrowDown)")
+
+    key_name = args[0]
+    modifiers = 0
+    for arg in args[1:]:
+        flag = MODIFIER_FLAGS.get(arg.lower().lstrip("-"))
+        if flag:
+            modifiers |= flag
+        else:
+            raise CLIError(f"Unknown modifier: {arg}. Use: alt, ctrl, meta/cmd, shift")
+
+    key_def = KEY_DEFINITIONS.get(key_name)
+    if key_def:
+        key_str = str(key_def["key"])
+        code = str(key_def["code"])
+        key_code = int(key_def.get("keyCode", 0))
+        text = str(key_def.get("text", ""))
+    elif len(key_name) == 1:
+        # Single character
+        key_str = key_name
+        code = f"Key{key_name.upper()}" if key_name.isalpha() else ""
+        key_code = ord(key_name.upper()) if key_name.isalpha() else ord(key_name)
+        text = key_name
+    else:
+        raise CLIError(f'Unknown key: "{key_name}". Use a single character or a named key (Enter, Tab, Escape, ArrowDown, etc.)')
+
+    down: dict[str, Any] = {
+        "type": "keyDown",
+        "key": key_str,
+        "modifiers": modifiers,
+        "windowsVirtualKeyCode": key_code,
+        "nativeVirtualKeyCode": key_code,
+    }
+    if code:
+        down["code"] = code
+    if text and modifiers == 0:
+        down["text"] = text
+        down["unmodifiedText"] = text
+
+    up: dict[str, Any] = {
+        "type": "keyUp",
+        "key": key_str,
+        "modifiers": modifiers,
+        "windowsVirtualKeyCode": key_code,
+        "nativeVirtualKeyCode": key_code,
+    }
+    if code:
+        up["code"] = code
+
+    cdp.send("Input.dispatchKeyEvent", down, session_id=session_id)
+    time.sleep(0.02)
+    cdp.send("Input.dispatchKeyEvent", up, session_id=session_id)
+
+    mod_parts = []
+    if modifiers & 2:
+        mod_parts.append("Ctrl")
+    if modifiers & 1:
+        mod_parts.append("Alt")
+    if modifiers & 8:
+        mod_parts.append("Shift")
+    if modifiers & 4:
+        mod_parts.append("Meta")
+    combo = "+".join(mod_parts + [key_name]) if mod_parts else key_name
+    return f"Pressed {combo}"
+
+
+def fill_str(cdp: CDP, session_id: str, selector: str, text: str) -> str:
+    if not selector:
+        raise CLIError("CSS selector required")
+    # Click and focus the element
+    focus_expression = f"""
+(() => {{
+  const el = document.querySelector({json.dumps(selector)});
+  if (!el) return JSON.stringify({{ok: false, error: 'Element not found: ' + {json.dumps(selector)}}});
+  el.scrollIntoView({{block: 'center'}});
+  el.focus({{preventScroll: true}});
+  el.click();
+  return JSON.stringify({{ok: true, tag: el.tagName, focused: document.activeElement === el}});
+}})()
+"""
+    result = json.loads(eval_str(cdp, session_id, focus_expression))
+    if not result.get("ok"):
+        raise CLIError(result.get("error", "Focus failed"))
+
+    # Select all existing text (Ctrl+A / Cmd+A)
+    cdp.send("Input.dispatchKeyEvent", {
+        "type": "keyDown", "key": "a", "code": "KeyA",
+        "modifiers": 4 if sys.platform == "darwin" else 2,
+        "windowsVirtualKeyCode": 65,
+    }, session_id=session_id)
+    cdp.send("Input.dispatchKeyEvent", {
+        "type": "keyUp", "key": "a", "code": "KeyA",
+        "modifiers": 4 if sys.platform == "darwin" else 2,
+        "windowsVirtualKeyCode": 65,
+    }, session_id=session_id)
+    time.sleep(0.02)
+
+    # Delete selected text
+    cdp.send("Input.dispatchKeyEvent", {
+        "type": "keyDown", "key": "Backspace", "code": "Backspace",
+        "windowsVirtualKeyCode": 8,
+    }, session_id=session_id)
+    cdp.send("Input.dispatchKeyEvent", {
+        "type": "keyUp", "key": "Backspace", "code": "Backspace",
+        "windowsVirtualKeyCode": 8,
+    }, session_id=session_id)
+    time.sleep(0.02)
+
+    # Type new text
+    cdp.send("Input.insertText", {"text": text}, session_id=session_id)
+    return f'Filled <{result["tag"]}> with {len(text)} characters'
+
+
+def hover_str(cdp: CDP, session_id: str, args: list[str]) -> str:
+    if not args:
+        raise CLIError("CSS selector or coordinates (x y) required")
+
+    # Check if it's coordinate-based (two numeric args)
+    if len(args) >= 2:
+        try:
+            css_x = float(args[0])
+            css_y = float(args[1])
+            cdp.send("Input.dispatchMouseEvent", {
+                "type": "mouseMoved", "x": css_x, "y": css_y,
+            }, session_id=session_id)
+            return f"Hovered at CSS ({css_x}, {css_y})"
+        except ValueError:
+            pass
+
+    # Selector-based
+    selector = " ".join(args)
+    expression = f"""
+(() => {{
+  const el = document.querySelector({json.dumps(selector)});
+  if (!el) return JSON.stringify({{ok: false, error: 'Element not found: ' + {json.dumps(selector)}}});
+  el.scrollIntoView({{block: 'center'}});
+  const rect = el.getBoundingClientRect();
+  const x = rect.left + rect.width / 2;
+  const y = rect.top + rect.height / 2;
+  return JSON.stringify({{ok: true, x: Math.round(x), y: Math.round(y), tag: el.tagName}});
+}})()
+"""
+    result = json.loads(eval_str(cdp, session_id, expression))
+    if not result.get("ok"):
+        raise CLIError(result.get("error", "Hover failed"))
+
+    cdp.send("Input.dispatchMouseEvent", {
+        "type": "mouseMoved", "x": result["x"], "y": result["y"],
+    }, session_id=session_id)
+    return f'Hovered <{result["tag"]}> at ({result["x"]}, {result["y"]})'
+
+
+def select_str(cdp: CDP, session_id: str, selector: str, value: str) -> str:
+    if not selector:
+        raise CLIError("CSS selector required")
+    if not value:
+        raise CLIError("Value required")
+    expression = f"""
+(() => {{
+  const el = document.querySelector({json.dumps(selector)});
+  if (!el) return JSON.stringify({{ok: false, error: 'Element not found: ' + {json.dumps(selector)}}});
+  if (el.tagName !== 'SELECT') return JSON.stringify({{ok: false, error: 'Element is <' + el.tagName + '>, not <SELECT>'}});
+  const opt = Array.from(el.options).find(o => o.value === {json.dumps(value)} || o.textContent.trim() === {json.dumps(value)});
+  if (!opt) return JSON.stringify({{ok: false, error: 'No option matching: ' + {json.dumps(value)}}});
+  el.value = opt.value;
+  el.dispatchEvent(new Event('input', {{bubbles: true}}));
+  el.dispatchEvent(new Event('change', {{bubbles: true}}));
+  return JSON.stringify({{ok: true, selected: opt.value, text: opt.textContent.trim()}});
+}})()
+"""
+    result = json.loads(eval_str(cdp, session_id, expression))
+    if not result.get("ok"):
+        raise CLIError(result.get("error", "Select failed"))
+    return f'Selected "{result["text"]}" (value={result["selected"]})'
+
+
+def cookies_str(cdp: CDP, session_id: str, args: list[str]) -> str:
+    if not args or args[0] not in ("--set", "--clear"):
+        # List cookies
+        result = cdp.send("Network.getCookies", {}, session_id=session_id)
+        cookies = result.get("cookies", [])
+        if not cookies:
+            return "No cookies"
+        lines = []
+        for c in cookies:
+            secure = " Secure" if c.get("secure") else ""
+            httponly = " HttpOnly" if c.get("httpOnly") else ""
+            lines.append(f'{c["name"]}={str(c.get("value", ""))[:60]}  (domain={c.get("domain", "")}{secure}{httponly})')
+        return "\n".join(lines)
+
+    if args[0] == "--clear":
+        cdp.send("Network.clearBrowserCookies", {}, session_id=session_id)
+        return "Cookies cleared"
+
+    if args[0] == "--set":
+        if len(args) < 2:
+            raise CLIError("Cookie value required: --set name=value")
+        cookie_str = args[1]
+        if "=" not in cookie_str:
+            raise CLIError("Cookie format: name=value")
+        name, value = cookie_str.split("=", 1)
+        # Get current page URL for domain
+        url = eval_str(cdp, session_id, "window.location.href")
+        cdp.send("Network.setCookie", {"name": name, "value": value, "url": url}, session_id=session_id)
+        return f'Set cookie {name}={value[:40]}'
+
+    return ""
+
+
+def storage_str(cdp: CDP, session_id: str, args: list[str]) -> str:
+    use_session = "--session" in args
+    set_kv: str | None = None
+    for i, arg in enumerate(args):
+        if arg == "--set" and i + 1 < len(args):
+            set_kv = args[i + 1]
+
+    storage_name = "sessionStorage" if use_session else "localStorage"
+
+    if set_kv:
+        if "=" not in set_kv:
+            raise CLIError("Format: --set key=value")
+        key, value = set_kv.split("=", 1)
+        expression = f"{storage_name}.setItem({json.dumps(key)}, {json.dumps(value)})"
+        eval_str(cdp, session_id, expression)
+        return f"Set {storage_name}.{key}={value[:40]}"
+
+    expression = f"JSON.stringify(Object.fromEntries(Object.entries({storage_name})))"
+    raw = eval_str(cdp, session_id, expression)
+    data = json.loads(raw)
+    if not data:
+        return f"{storage_name} is empty"
+    lines = []
+    for key, value in data.items():
+        lines.append(f"  {key}={str(value)[:80]}")
+    return f"{storage_name} ({len(data)} items):\n" + "\n".join(lines)
+
+
+def pdf_str(cdp: CDP, session_id: str, file_path: str | None, target_id: str) -> str:
+    result = cdp.send("Page.printToPDF", {
+        "printBackground": True,
+        "preferCSSPageSize": True,
+    }, session_id=session_id)
+    output = Path(file_path).expanduser() if file_path else RUNTIME_DIR / f"page-{target_id[:8]}.pdf"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(base64.b64decode(result["data"]))
+    return f"PDF saved: {output}"
+
+
+def shot_full_str(cdp: CDP, session_id: str, file_path: str | None, target_id: str) -> str:
+    """Full-page screenshot using layout metrics."""
+    dpr = 1.0
+    try:
+        raw_dpr = eval_str(cdp, session_id, "window.devicePixelRatio")
+        parsed = float(raw_dpr)
+        if parsed > 0:
+            dpr = parsed
+    except Exception:
+        pass
+
+    # Get full page dimensions
+    metrics = cdp.send("Page.getLayoutMetrics", {}, session_id=session_id)
+    content = metrics.get("contentSize") or metrics.get("cssContentSize", {})
+    width = content.get("width", 1280)
+    height = content.get("height", 800)
+
+    result = cdp.send("Page.captureScreenshot", {
+        "format": "png",
+        "captureBeyondViewport": True,
+        "clip": {"x": 0, "y": 0, "width": width, "height": height, "scale": 1},
+    }, session_id=session_id)
+
+    output = Path(file_path).expanduser() if file_path else RUNTIME_DIR / f"screenshot-full-{target_id[:8]}.png"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(base64.b64decode(result["data"]))
+
+    return f"{output}\nFull-page screenshot saved ({width}x{height} CSS pixels, DPR={dpr})"
+
+
 def daemon_request(command: str, args: list[str]) -> dict[str, Any]:
     return {"cmd": command, "args": args}
 
@@ -897,6 +1334,9 @@ def run_daemon(target_id: str) -> None:
             if cmd in {"eval"}:
                 return {"ok": True, "result": eval_str(cdp, session_id, args[0])}
             if cmd in {"shot", "screenshot"}:
+                full = "--full" in args
+                if full:
+                    return {"ok": True, "result": shot_full_str(cdp, session_id, args[0] if args and args[0] != "--full" else None, target_id)}
                 return {"ok": True, "result": shot_str(cdp, session_id, args[0] if args else None, target_id)}
             if cmd == "html":
                 return {"ok": True, "result": html_str(cdp, session_id, args[0] if args else None)}
@@ -915,6 +1355,28 @@ def run_daemon(target_id: str) -> None:
                 return {"ok": True, "result": loadall_str(cdp, session_id, args[0], interval)}
             if cmd == "evalraw":
                 return {"ok": True, "result": evalraw_str(cdp, session_id, args[0], args[1] if len(args) > 1 else None)}
+            if cmd == "wait":
+                return {"ok": True, "result": wait_str(cdp, session_id, args)}
+            if cmd == "scroll":
+                return {"ok": True, "result": scroll_str(cdp, session_id, args)}
+            if cmd == "press":
+                return {"ok": True, "result": press_str(cdp, session_id, args)}
+            if cmd == "fill":
+                if len(args) < 2:
+                    return {"ok": False, "error": "fill requires selector and text"}
+                return {"ok": True, "result": fill_str(cdp, session_id, args[0], " ".join(args[1:]))}
+            if cmd == "hover":
+                return {"ok": True, "result": hover_str(cdp, session_id, args)}
+            if cmd == "select":
+                if len(args) < 2:
+                    return {"ok": False, "error": "select requires selector and value"}
+                return {"ok": True, "result": select_str(cdp, session_id, args[0], " ".join(args[1:]))}
+            if cmd == "cookies":
+                return {"ok": True, "result": cookies_str(cdp, session_id, args)}
+            if cmd == "storage":
+                return {"ok": True, "result": storage_str(cdp, session_id, args)}
+            if cmd == "pdf":
+                return {"ok": True, "result": pdf_str(cdp, session_id, args[0] if args else None, target_id)}
             if cmd == "stop":
                 return {"ok": True, "result": "", "stopAfter": True}
             return {"ok": False, "error": f"Unknown command: {cmd}"}
@@ -1082,13 +1544,22 @@ Usage: python3 scripts/cdp.py <command> [args]
   list                              List open pages (shows unique target prefixes)
   snap  <target> [--full]           Accessibility tree snapshot (compact by default)
   eval  <target> <expr>             Evaluate a JavaScript expression
-  shot  <target> [file]             Screenshot to file or runtime dir
+  shot  <target> [--full] [file]    Screenshot (viewport or --full page)
   html  <target> [selector]         Get full page HTML or element HTML
   nav   <target> <url>              Navigate to URL and wait for load completion
   net   <target>                    Network performance entries
   click   <target> <selector>       Click an element by CSS selector
   clickxy <target> <x> <y>          Click at CSS pixel coordinates
   type    <target> <text>           Type text at current focus via Input.insertText
+  press   <target> <key> [mod...]   Dispatch key event (Enter, Tab, Escape, a, ...)
+  fill    <target> <selector> <txt> Focus, clear, then type into an input field
+  hover   <target> <sel|x y>        Hover over element or coordinates
+  scroll  <target> [sel] <dir> [px] Scroll page or container (up/down/left/right/top/bottom)
+  wait    <target> <sel> [opts]     Wait for element (--gone, --idle, --timeout ms)
+  select  <target> <selector> <val> Select an option in a <select> dropdown
+  cookies <target> [--set k=v|--clear]  List, set, or clear cookies
+  storage <target> [--session] [--set k=v]  Read/write localStorage or sessionStorage
+  pdf     <target> [file]           Save page as PDF
   loadall <target> <selector> [ms]  Click a "load more" selector until it disappears
   evalraw <target> <method> [json]  Send a raw CDP command; returns JSON result
   open  [url]                       Open a new tab (default: about:blank)
@@ -1117,6 +1588,15 @@ NEEDS_TARGET = {
     "click",
     "clickxy",
     "type",
+    "press",
+    "fill",
+    "hover",
+    "scroll",
+    "wait",
+    "select",
+    "cookies",
+    "storage",
+    "pdf",
     "loadall",
     "evalraw",
 }
@@ -1195,7 +1675,8 @@ def main(argv: list[str]) -> int:
                 raise CLIError("Expression required")
             response = send_command(conn, meta, daemon_request(cmd, [expression]))
         elif cmd == "shot":
-            response = send_command(conn, meta, daemon_request(cmd, [args[1]] if len(args) > 1 else []))
+            shot_args = list(args[1:])
+            response = send_command(conn, meta, daemon_request(cmd, shot_args))
         elif cmd == "html":
             selector = " ".join(args[1:]).strip()
             response = send_command(conn, meta, daemon_request(cmd, [selector] if selector else []))
@@ -1219,6 +1700,36 @@ def main(argv: list[str]) -> int:
             if not text:
                 raise CLIError("Text required")
             response = send_command(conn, meta, daemon_request(cmd, [text]))
+        elif cmd == "press":
+            if not args[1:]:
+                raise CLIError("Key name required (e.g. Enter, Tab, Escape)")
+            response = send_command(conn, meta, daemon_request(cmd, list(args[1:])))
+        elif cmd == "fill":
+            if len(args) < 3:
+                raise CLIError("Selector and text required")
+            response = send_command(conn, meta, daemon_request(cmd, [args[1], " ".join(args[2:])]))
+        elif cmd == "hover":
+            if not args[1:]:
+                raise CLIError("CSS selector or coordinates required")
+            response = send_command(conn, meta, daemon_request(cmd, list(args[1:])))
+        elif cmd == "scroll":
+            if not args[1:]:
+                raise CLIError("Direction required (up/down/left/right/top/bottom)")
+            response = send_command(conn, meta, daemon_request(cmd, list(args[1:])))
+        elif cmd == "wait":
+            if not args[1:]:
+                raise CLIError("Selector or --idle required")
+            response = send_command(conn, meta, daemon_request(cmd, list(args[1:])))
+        elif cmd == "select":
+            if len(args) < 3:
+                raise CLIError("Selector and value required")
+            response = send_command(conn, meta, daemon_request(cmd, [args[1], " ".join(args[2:])]))
+        elif cmd == "cookies":
+            response = send_command(conn, meta, daemon_request(cmd, list(args[1:])))
+        elif cmd == "storage":
+            response = send_command(conn, meta, daemon_request(cmd, list(args[1:])))
+        elif cmd == "pdf":
+            response = send_command(conn, meta, daemon_request(cmd, list(args[1:])))
         elif cmd == "loadall":
             if len(args) < 2:
                 raise CLIError("CSS selector required")
