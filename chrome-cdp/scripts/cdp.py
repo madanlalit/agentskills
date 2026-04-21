@@ -217,7 +217,11 @@ class RawWebSocket:
             raise WebSocketError(f"Invalid WebSocket URL: {ws_url}")
 
         port = parsed.port or (443 if parsed.scheme == "wss" else 80)
-        raw_sock = socket.create_connection((host, port), timeout=timeout)
+        try:
+            raw_sock = socket.create_connection((host, port), timeout=timeout)
+        except ConnectionRefusedError:
+            raise CLIError(f"Connection refused - check if the chrome browser is running or please allow remote debugging from chrome://inspect/#remote-debugging") from None
+
         if parsed.scheme == "wss":
             context = ssl.create_default_context()
             raw_sock = context.wrap_socket(raw_sock, server_hostname=host)
