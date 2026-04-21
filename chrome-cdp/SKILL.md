@@ -98,6 +98,7 @@ python3 scripts/cdp.py storage <target>
 python3 scripts/cdp.py storage <target> --session
 python3 scripts/cdp.py storage <target> --set key=value
 python3 scripts/cdp.py pdf     <target> [file]
+python3 scripts/cdp.py console <target>
 ```
 
 - `html` returns the full page or a specific element's outer HTML.
@@ -105,6 +106,7 @@ python3 scripts/cdp.py pdf     <target> [file]
 - `cookies` lists, sets, or clears cookies.
 - `storage` reads/writes localStorage (or sessionStorage with `--session`).
 - `pdf` saves the page as a PDF.
+- `console` returns recent console logs and browser errors.
 
 ### Other commands
 

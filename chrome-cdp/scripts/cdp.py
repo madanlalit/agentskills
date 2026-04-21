@@ -1242,6 +1242,26 @@ def shot_full_str(cdp: CDP, session_id: str, file_path: str | None, target_id: s
     return f"{output}\nFull-page screenshot saved ({width}x{height} CSS pixels, DPR={dpr})"
 
 
+def console_str(cdp: CDP) -> str:
+    logs = []
+    with cdp._condition:
+        for _, msg in cdp._events:
+            method = msg.get("method")
+            if method == "Log.entryAdded":
+                params = msg.get("params", {})
+                entry = params.get("entry", {})
+                level = entry.get("level", "info").upper()
+                text = entry.get("text", "")
+                logs.append(f"[{level}] {text}")
+            elif method == "Runtime.consoleAPICalled":
+                params = msg.get("params", {})
+                ctype = params.get("type", "log").upper()
+                args = params.get("args", [])
+                text = " ".join(remote_object_to_string(a) for a in args)
+                logs.append(f"[{ctype}] {text}")
+    return "\n".join(logs) if logs else "No console logs captured."
+
+
 def daemon_request(command: str, args: list[str]) -> dict[str, Any]:
     return {"cmd": command, "args": args}
 
@@ -1265,6 +1285,13 @@ def run_daemon(target_id: str) -> None:
         print("Daemon: attach failed: no session ID returned", file=sys.stderr)
         cdp.close()
         raise SystemExit(1)
+
+    # Enable domains for log capture
+    try:
+        cdp.send("Runtime.enable", {}, session_id=session_id)
+        cdp.send("Log.enable", {}, session_id=session_id)
+    except Exception as exc:
+        print(f"Daemon: failed to enable log domains: {exc}", file=sys.stderr)
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -1332,6 +1359,8 @@ def run_daemon(target_id: str) -> None:
                 return {"ok": True, "result": format_page_list(get_pages(cdp))}
             if cmd == "list_raw":
                 return {"ok": True, "result": json.dumps(get_pages(cdp))}
+            if cmd == "console":
+                return {"ok": True, "result": console_str(cdp)}
             if cmd in {"snap", "snapshot"}:
                 compact = "--full" not in args
                 return {"ok": True, "result": snapshot_str(cdp, session_id, compact=compact)}
@@ -1564,6 +1593,7 @@ Usage: python3 scripts/cdp.py <command> [args]
   cookies <target> [--set k=v|--clear]  List, set, or clear cookies
   storage <target> [--session] [--set k=v]  Read/write localStorage or sessionStorage
   pdf     <target> [file]           Save page as PDF
+  console <target>                  Fetch recent console logs
   loadall <target> <selector> [ms]  Click a "load more" selector until it disappears
   evalraw <target> <method> [json]  Send a raw CDP command; returns JSON result
   open  [url]                       Open a new tab (default: about:blank)
@@ -1601,6 +1631,7 @@ NEEDS_TARGET = {
     "cookies",
     "storage",
     "pdf",
+    "console",
     "loadall",
     "evalraw",
 }
@@ -1732,6 +1763,8 @@ def main(argv: list[str]) -> int:
             response = send_command(conn, meta, daemon_request(cmd, list(args[1:])))
         elif cmd == "storage":
             response = send_command(conn, meta, daemon_request(cmd, list(args[1:])))
+        elif cmd == "console":
+            response = send_command(conn, meta, daemon_request(cmd, []))
         elif cmd == "pdf":
             response = send_command(conn, meta, daemon_request(cmd, list(args[1:])))
         elif cmd == "loadall":
