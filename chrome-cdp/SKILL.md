@@ -3,14 +3,8 @@ name: chrome-cdp
 description: A Python CLI for interacting directly with the user's running Chromium browser via the Chrome DevTools Protocol (CDP). Connects via WebSocket to inspect pages, extract data, evaluate JS, and automate UI actions in open tabs. Requires explicit user approval; a background daemon ensures the "Allow debugging" prompt only requires one approval per tab.
 metadata:
   author: madanlalit
-  compatibility: Requires Python 3.9+ and chromium-based browser with remote debugging enabled.
+  compatibility: Requires Python 3.9+ and chromium-based browser with remote debugging enabled (`chrome://inspect/#remote-debugging`).
 ---
-
-## Prerequisites
-
-- Chromium-based browser with remote debugging enabled (`chrome://inspect/#remote-debugging`).
-- Python 3.9+
-- Optional: Set `CDP_PORT_FILE` to the full path if `DevToolsActivePort` is in a non-standard location.
 
 ## Commands
 
@@ -140,3 +134,4 @@ CSS px = screenshot px / DPR
 - A background daemon starts on first tab access and exits after 20 minutes of inactivity (configurable via `CDP_IDLE_TIMEOUT` in seconds).
 - `press` key names are case-sensitive: use `Enter` not `enter`, `Tab` not `tab`.
 - `scroll` defaults to 85% of the viewport/container height per scroll step.
+- Optional: Set `CDP_PORT_FILE` to the full path if `DevToolsActivePort` is in a non-standard location.
