@@ -8,4 +8,5 @@ metadata:
 
 ## Usage
 
-For detailed command syntax, workflow examples, and technical notes, see the `references/commands.txt` file.
+Before doing anything, read `references/commands.txt` to understand how to execute the commands.
+For comprehensive workflow examples, refer to `references/usage.txt`.

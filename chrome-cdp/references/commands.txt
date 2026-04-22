@@ -26,10 +26,6 @@ evalraw <target> <method> [json]
 open [url] - Open new tab
 stop [target] - Stop daemon
 
-WORKFLOW EXAMPLES
-1. Fill form: nav <target> URL, fill <target> #email text, press <target> Enter, wait <target> .dash
-2. Extract & Paginate: eval <target> "...", click <target> .next, wait <target> --idle
-
 NOTES
 Daemon starts on 1st access, exits after 20m idle (CDP_IDLE_TIMEOUT).
 Set CDP_PORT_FILE to full path if DevToolsActivePort is non-standard.
