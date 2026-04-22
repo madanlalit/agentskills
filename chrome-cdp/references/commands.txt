@@ -1,0 +1,35 @@
+COMMANDS (Usage: python3 scripts/cdp.py <cmd>)
+<target>: Unique targetId prefix from `list`.
+
+list - List open pages
+shot <target> [file] [--full] - Screenshot viewport or full page. Output includes DPR (CSS px = screenshot px / DPR)
+snap <target> [--full] - Accessibility tree snapshot
+eval <target> <expr> - Evaluate JS. Avoid index-based selection when DOM may change
+nav <target> <url> - Navigates and waits for page load
+wait <target> <selector|--gone selector|--idle> [--timeout 15000] - Polls condition. Default 15s
+click <target> <selector> - Click CSS selector (scrolls into view first)
+clickxy <target> <x> <y> - Click at CSS pixel coordinates
+hover <target> <selector|x y> - Hover element or coordinates
+type <target> <text> - Input.insertText (works in cross-origin iframes)
+press <target> <key> [modifier...] - Key events (e.g. Enter, Tab, ArrowDown, meta/cmd). Case-sensitive
+fill <target> <selector> <text> - Focus, clear, and type. Prefer over click+type for inputs
+select <target> <selector> <value> - Set <select> by value/text and dispatch change event
+scroll <target> [selector] <direction> [px] - Directions: up/down/left/right/top/bottom. Default 85% height
+html <target> [selector] - Outer HTML of page or element
+net <target> - Network performance entries
+cookies <target> [--set name=value|--clear] - Manage cookies
+storage <target> [--session|--set key=value] - Manage localStorage/sessionStorage
+pdf <target> [file] - Save page as PDF
+console <target> - Recent console logs/errors
+loadall <target> <selector> [ms]
+evalraw <target> <method> [json]
+open [url] - Open new tab
+stop [target] - Stop daemon
+
+WORKFLOW EXAMPLES
+1. Fill form: nav <target> URL, fill <target> #email text, press <target> Enter, wait <target> .dash
+2. Extract & Paginate: eval <target> "...", click <target> .next, wait <target> --idle
+
+NOTES
+Daemon starts on 1st access, exits after 20m idle (CDP_IDLE_TIMEOUT).
+Set CDP_PORT_FILE to full path if DevToolsActivePort is non-standard.
