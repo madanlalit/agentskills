@@ -1,11 +1,7 @@
 ---
 name: chrome-cdp
-description: A Python CLI for interacting directly with the user's running Chromium-based browser (Chrome, Edge, Brave, etc.) via the Chrome DevTools Protocol. Use this to inspect pages, extract data, evaluate JavaScript, and automate UI actions in existing open tabs. Requires explicit user approval.
+description: A dependency-free Python CLI for interacting directly with the user's running Chromium browser via the Chrome DevTools Protocol (CDP). Connects via WebSocket to inspect pages, extract data, evaluate JS, and automate UI actions in open tabs. Requires explicit user approval; a background daemon ensures the "Allow debugging" prompt only requires one approval per tab.
 ---
-
-# Chrome CDP
-
-A lightweight, dependency-free Python CLI for the Chrome DevTools Protocol (CDP). It connects directly to Chrome's remote debugging port via WebSocket, bypassing bulky automation frameworks. A per-tab background daemon ensures the "Allow debugging" prompt requires only one approval per tab.
 
 ## Prerequisites
 
