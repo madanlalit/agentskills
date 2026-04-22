@@ -5,19 +5,18 @@ description: A Python CLI for interacting directly with the user's running Chrom
 
 # Chrome CDP
 
-A lightweight, dependency-free Python CLI for the Chrome DevTools Protocol (CDP). It connects directly to Chrome's remote debugging port via WebSocket, bypassing bulky automation frameworks. A per-tab background daemon ensures the "Allow debugging" prompt only requires one approval per tab.
+A lightweight, dependency-free Python CLI for the Chrome DevTools Protocol (CDP). It connects directly to Chrome's remote debugging port via WebSocket, bypassing bulky automation frameworks. A per-tab background daemon ensures the "Allow debugging" prompt requires only one approval per tab.
 
 ## Prerequisites
 
-- Any Chromium-based browser (Chrome, Edge, Brave, etc.) with remote debugging enabled:
-  open `chrome://inspect/#remote-debugging` and toggle the switch
+- Chromium-based browser with remote debugging enabled (`chrome://inspect/#remote-debugging`).
 - Python 3.9+
-- No third-party packages required
-- If your browser stores `DevToolsActivePort` in a non-standard location, set `CDP_PORT_FILE` to the full path
+- No third-party packages required.
+- Optional: Set `CDP_PORT_FILE` to the full path if `DevToolsActivePort` is in a non-standard location.
 
 ## Commands
 
-All commands use `scripts/cdp.py`. The `<target>` is a unique `targetId` prefix from `list`; use the exact prefix shown there. Ambiguous prefixes are rejected.
+All commands use `scripts/cdp.py`. The `<target>` is a unique `targetId` prefix from `list`; use the exact prefix shown there.
 
 ### List open pages
 
@@ -32,7 +31,7 @@ python3 scripts/cdp.py shot <target> [file]
 python3 scripts/cdp.py shot <target> --full [file]
 ```
 
-Captures the current viewport (or the full page with `--full`). The output includes the page DPR so screenshot coordinates can be converted back to CSS pixels for `clickxy`.
+Captures the current viewport (or the full page with `--full`). The output includes the page DPR to convert screenshot coordinates to CSS pixels for `clickxy`.
 
 ### Accessibility tree snapshot
 
@@ -49,7 +48,7 @@ Compact mode is the default. Use `--full` if you need the noisier tree.
 python3 scripts/cdp.py eval <target> <expr>
 ```
 
-Avoid index-based selection across multiple `eval` calls when the DOM may change between calls. Prefer stable selectors or collect the data in one expression.
+Avoid index-based selection across multiple `eval` calls when the DOM may change. Prefer stable selectors or collecting data in one expression.
 
 ### Navigation and waiting
 
@@ -80,9 +79,9 @@ python3 scripts/cdp.py scroll  <target> [selector] <direction> [px]
 - `click` clicks a CSS selector (scrolls into view first).
 - `clickxy` clicks at CSS pixel coordinates.
 - `hover` moves the mouse over an element or coordinates.
-- `type` uses `Input.insertText`, which works in focused cross-origin iframes where DOM-based `eval` approaches often fail.
+- `type` uses `Input.insertText` (works in focused cross-origin iframes where DOM-based `eval` fails).
 - `press` dispatches `keyDown`/`keyUp` events. Supports named keys (`Enter`, `Tab`, `Escape`, `ArrowDown`, `Backspace`, `Delete`, `Space`, etc.) and modifiers (`ctrl`, `alt`, `shift`, `meta`/`cmd`).
-- `fill` clicks a field to focus it, selects all existing text, deletes it, then types new text. Use this instead of `click` + `type` for input fields.
+- `fill` clicks a field to focus it, clears existing text, then types new text. Prefer over `click` + `type` for inputs.
 - `select` sets a `<select>` dropdown's value by option value or visible text, and dispatches `change`/`input` events.
 - `scroll` scrolls the page or a specific container. Directions: `up`, `down`, `left`, `right`, `top`, `bottom`. Optional pixel amount (default: 85% of viewport/container height).
 
@@ -134,12 +133,12 @@ python3 scripts/cdp.py wait   <target> --idle
 
 ## Notes
 
-- `shot` saves image pixels, while CDP input commands use CSS pixels:
+- `shot` saves image pixels, while input commands use CSS pixels:
 
 ```text
 CSS px = screenshot px / DPR
 ```
 
-- A background daemon is started the first time a tab is accessed and exits after 20 minutes of inactivity (configurable via the `CDP_IDLE_TIMEOUT` environment variable, in seconds).
+- A background daemon starts on first tab access and exits after 20 minutes of inactivity (configurable via `CDP_IDLE_TIMEOUT` in seconds).
 - `press` key names are case-sensitive: use `Enter` not `enter`, `Tab` not `tab`.
 - `scroll` defaults to 85% of the viewport/container height per scroll step.
