@@ -117,47 +117,19 @@ python3 scripts/cdp.py open    [url]
 python3 scripts/cdp.py stop    [target]
 ```
 
-## Recipes
-
-### Log into a website
+## Example Workflows
 
 ```bash
-python3 scripts/cdp.py list
-python3 scripts/cdp.py nav     <target> https://example.com/login
-python3 scripts/cdp.py fill    <target> '#email' user@example.com
-python3 scripts/cdp.py fill    <target> '#password' s3cret
-python3 scripts/cdp.py press   <target> Enter
-python3 scripts/cdp.py wait    <target> .dashboard
-python3 scripts/cdp.py shot    <target>
-```
+# 1. Fill form and wait for navigation
+python3 scripts/cdp.py nav    <target> https://example.com/login
+python3 scripts/cdp.py fill   <target> '#email' user@example.com
+python3 scripts/cdp.py press  <target> Enter
+python3 scripts/cdp.py wait   <target> .dashboard
 
-### Scrape a paginated table
-
-```bash
-python3 scripts/cdp.py snap    <target>
-python3 scripts/cdp.py eval    <target> "JSON.stringify([...document.querySelectorAll('table tr')].map(r => [...r.cells].map(c => c.textContent)))"
-python3 scripts/cdp.py click   <target> '.next-page'
-python3 scripts/cdp.py wait    <target> --idle
-python3 scripts/cdp.py eval    <target> "..."
-```
-
-### Fill a multi-field form
-
-```bash
-python3 scripts/cdp.py fill    <target> '#name' 'Jane Doe'
-python3 scripts/cdp.py select  <target> '#country' 'United States'
-python3 scripts/cdp.py click   <target> '#agree-checkbox'
-python3 scripts/cdp.py click   <target> 'button[type=submit]'
-python3 scripts/cdp.py wait    <target> '.success-message'
-```
-
-### Debug network requests
-
-```bash
-python3 scripts/cdp.py net      <target>
-python3 scripts/cdp.py cookies  <target>
-python3 scripts/cdp.py storage  <target>
-python3 scripts/cdp.py eval     <target> "document.cookie"
+# 2. Extract data and paginate
+python3 scripts/cdp.py eval   <target> "document.body.innerText"
+python3 scripts/cdp.py click  <target> '.next-page'
+python3 scripts/cdp.py wait   <target> --idle
 ```
 
 ## Notes
