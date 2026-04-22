@@ -168,6 +168,6 @@ python3 scripts/cdp.py eval     <target> "document.cookie"
 CSS px = screenshot px / DPR
 ```
 
-- A background daemon is started the first time a tab is accessed and exits after 20 minutes of inactivity.
+- A background daemon is started the first time a tab is accessed and exits after 20 minutes of inactivity (configurable via the `CDP_IDLE_TIMEOUT` environment variable, in seconds).
 - `press` key names are case-sensitive: use `Enter` not `enter`, `Tab` not `tab`.
 - `scroll` defaults to 85% of the viewport/container height per scroll step.
