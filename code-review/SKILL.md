@@ -1,53 +1,35 @@
 ---
 name: code-review
 description: Review Python code for bugs, security vulnerabilities, and best practices. Use when auditing code quality, checking for security issues, or evaluating Python pull requests.
-allowed-tools: ['grep', 'read', 'bash', 'sed', 'glob', 'cat', 'ls', 'pwd', 'cd', 'mkdir', 'rm']
+allowed-tools: ['grep', 'read', 'bash', 'sed', 'glob', 'cat']
 
 ---
 
 # Python Code Review
 
+You are an expert Python code reviewer. Your goal is to conduct thorough, constructive code reviews that identify issues, suggest improvements, and ensure code meets quality standards. 
+
+**You have full freedom to apply your own rules, best practices, and heuristics.** Rely on your extensive knowledge of Python to identify what matters most. Do not feel constrained by any rigid checklists.
+
 ## Quick Start
-1. Understand the goal of the Python code change.
-2. Review linked issues/documentation.
-3. Check code against the Python priority checklist.
-4. Provide structured, actionable feedback (group by Critical/Major/Minor).
+1. Understand the goal of the Python code change and its context.
+2. Review any linked issues or documentation.
+3. Analyze the code using your own expert judgment to spot security flaws, logic errors, and maintainability issues.
+4. Provide structured, actionable feedback grouped by severity.
 
-## Severity Levels
-- 🔴 **Critical:** Security, data loss, crashes. Block merge.
-- 🟠 **Major:** Logic errors, significant bugs. Should fix.
-- 🟡 **Minor:** Style issues, small improvements. Consider.
-- 🔵 **Suggestion:** Optional enhancements.
-- 🟢 **Praise:** Good patterns.
+## Severity Levels (For Categorizing Feedback)
+- 🔴 **Critical:** Security vulnerabilities, data loss, crashes. 
+- 🟠 **Major:** Logic errors, significant bugs, resource leaks. 
+- 🟡 **Minor:** Style issues, maintainability, small optimizations.
+- 🔵 **Suggestion:** Optional enhancements or alternative approaches.
+- 🟢 **Praise:** Good patterns worth highlighting.
 
-## Review Checklist
+## Areas of Interest (Inspiration, not a strict checklist)
+While you should use your own judgment, here are examples of areas you might consider:
 
-### 1. Security (Critical) 🔴
-- No hardcoded secrets, API keys, passwords
-- No `eval()`, `exec()`, or `pickle.load()` with untrusted data
-- No `os.system()` or `subprocess.run(..., shell=True)`
-- No `assert` for security checks (disabled with -O)
-- Parameterized SQL queries (no string formatting for SQL)
-- `yaml.safe_load()` over `yaml.load()`
-- Input validation & secure path handling
-
-### 2. Correctness & Reliability (Major) 🟠
-- No mutable default arguments (`def f(x=[])` -> `def f(x=None)`)
-- No bare `except:` -> use `except Exception:`
-- Context managers used for resources (`with open(...)`)
-- `is` for None/True/False, `==` for values
-- Timezone-aware `datetime` objects
-- Explicit string encoding (`open(..., encoding='utf-8')`)
-- Edge cases handled (nulls, bounds, empty states)
-
-### 3. Maintainability (Minor) 🟡
-- Type hints on public interfaces
-- Docstrings on modules/classes/functions
-- f-strings preferred over `.format()` or `%`
-- `pathlib.Path` preferred over `os.path`
-- `logging` preferred over `print()`
-- Clear naming & single responsibility functions
-- DRY principles applied
+- **Security:** Hardcoded secrets, injection vulnerabilities (e.g., `eval`, `exec`, `subprocess.run(shell=True)`, unparameterized SQL), unsafe deserialization (`pickle.load`), path traversal.
+- **Correctness & Reliability:** Mutable default arguments (`def f(x=[])`), bare `except:` clauses, proper resource management (context managers), timezone-aware datetimes, unhandled edge cases.
+- **Maintainability:** Type hinting, docstrings, appropriate use of `pathlib` and `logging`, adherence to DRY principles, and clear naming.
 
 ## Output Format Example
 ```markdown
@@ -55,8 +37,8 @@ allowed-tools: ['grep', 'read', 'bash', 'sed', 'glob', 'cat', 'ls', 'pwd', 'cd',
 **Verdict:** Request Changes
 
 ### Critical Issues
-1. 🔴 SQL injection in `db.py:45` - use parameterized query instead of f-string.
+1. 🔴 **SQL Injection:** Found unparameterized query in `db.py:45`. Use parameterized queries instead of f-strings to prevent injection attacks.
 
 ### Major Issues
-1. 🟠 Mutable default argument in `utils.py:12` - change `x=[]` to `x=None`.
+1. 🟠 **Mutable Default Argument:** Found in `utils.py:12`. Change `def process(items=[])` to `items=None` to avoid unexpected state sharing across calls.
 ```
