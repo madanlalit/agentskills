@@ -1,708 +1,159 @@
 ---
 name: codebase-understanding
-description: Systematically analyze and understand any codebase. Use when: exploring unfamiliar projects, onboarding to new codebases, tracing features or bugs, documenting architecture, analyzing dependencies, planning refactors, or conducting technical due diligence. Supports all major languages and project types.
+description: >
+  Use this skill when you need to understand how an unfamiliar codebase works before doing anything
+  else. Activate when the user asks you to explore a project, trace a feature or bug, map the
+  architecture, plan a refactor, or answer "how does X work?" — even if they don't explicitly say
+  "analyze the codebase." Also use it when you're about to make a large or cross-cutting change and
+  need to understand the system first. Supports all languages and project types.
+metadata:
+  version: "1.0"
 ---
 
-# Codebase Understanding Skill
+# Codebase Understanding
 
-## Objective
-Systematically analyze and comprehend unfamiliar codebases through progressive discovery, pattern recognition, and structured documentation. Transform a complex codebase into a clear mental model of its architecture, components, data flows, and key patterns.
+## Workflow
 
----
+Complete these steps in order. Do not skip ahead.
 
-## Quick Start Workflow
-
-```
-1. INITIAL RECONNAISSANCE (5-10 min)
-   ├── Read README and documentation
-   ├── Identify tech stack and dependencies
-   ├── Map directory structure
-   └── Find entry points and main files
-
-2. ARCHITECTURE MAPPING (10-20 min)
-   ├── Identify project type and patterns
-   ├── Map major components/modules
-   ├── Understand separation of concerns
-   └── Document high-level architecture
-
-3. DEEP DIVE (20-40 min per component)
-   ├── Trace key user flows
-   ├── Map data models and schemas
-   ├── Understand API boundaries
-   └── Identify configuration points
-
-4. DOCUMENTATION (ongoing)
-   ├── Create architecture diagram
-   ├── Document component relationships
-   ├── Map data flows
-   └── Note important patterns and gotchas
-
-5. VERIFICATION
-   ├── Run the application locally
-   ├── Execute tests to see coverage
-   ├── Verify understanding with targeted questions
-   └── Update documentation with learnings
-```
+- [ ] **1. Orient** — map the surface area
+- [ ] **2. Identify architecture** — name the pattern and major components
+- [ ] **3. Trace one flow** — follow a key action end-to-end
+- [ ] **4. Verify** — check your model against tests and git history
+- [ ] **5. Summarize** — write findings before making any changes
 
 ---
 
-## Discovery Strategies
+## Step 1: Orient
 
-### Phase 1: Project Overview (Start Here)
+Read these first, in this order:
 
-**Essential Files to Check:**
-```bash
-# Documentation
-README.md, CONTRIBUTING.md, docs/
+1. `README.md` (or `README`) — purpose, setup, high-level design
+2. Primary manifest — `package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, or `pom.xml`
+3. `.env.example` or `config/` — required secrets and feature knobs
 
-# Configuration
-package.json, requirements.txt, go.mod, Cargo.toml, pom.xml
-.env.example, config/, settings.py
-
-# Build & Deploy
-Makefile, Dockerfile, docker-compose.yml, .github/workflows/
-setup.py, pyproject.toml, tsconfig.json
-
-# Tests
-tests/, test/, __tests__, *_test.go, *.spec.ts
-pytest.ini, jest.config.js
-```
-
-**Quick Analysis Commands:**
-```bash
-# Get file counts by type
-find . -type f | sed 's/.*\.//' | sort | uniq -c | sort -rn | head -20
-
-# Find main entry points
-find . -name "main.*" -o -name "index.*" -o -name "app.*" -o -name "__init__.py"
-
-# Identify frameworks/libraries
-cat package.json requirements.txt go.mod Cargo.toml pom.xml 2>/dev/null | head -50
-
-# Find configuration files
-find . -name "*.config.*" -o -name "*rc" -o -name "*.yml" -o -name "*.yaml" | head -20
-```
-
-**Use Automated Script:**
-```bash
-./scripts/analyze-structure.sh /path/to/codebase
-```
-
-### Phase 2: Architecture Identification
-
-**Project Type Patterns:**
-
-| Pattern | Indicators | Key Files |
-|---------|-----------|-----------|
-| **Web App (Frontend)** | React/Vue/Angular components | `src/components/`, `public/`, `index.html` |
-| **Web App (Backend)** | Routes, controllers, models | `routes/`, `controllers/`, `models/`, `api/` |
-| **REST API** | Endpoints, OpenAPI specs | `api/`, `routes/`, `swagger.yaml` |
-| **GraphQL API** | Schema, resolvers | `schema.graphql`, `resolvers/` |
-| **CLI Tool** | Command definitions, arg parsing | `cmd/`, `cli/`, `commands/` |
-| **Library/SDK** | Public API, examples | `src/`, `lib/`, `examples/`, `index.ts` |
-| **Microservice** | Service boundaries, messaging | `services/`, message queues, gRPC |
-| **Monorepo** | Multiple packages/apps | `packages/`, `apps/`, workspaces |
-| **Data Pipeline** | ETL, jobs, workflows | `jobs/`, `pipelines/`, Airflow DAGs |
-
-**Architecture Styles:**
+Then get a structural overview:
 
 ```bash
-# Monolithic patterns
-rg -l "class.*Controller|def.*view|@app.route" --type py
-rg -l "class.*Service|interface.*Repository" --type java
+# Directory tree (depth 2)
+find . -maxdepth 2 -type d | grep -vE "node_modules|venv|vendor|build|dist|__pycache__|\.git" | sort
 
-# Microservices patterns
-rg -l "grpc|protobuf|kafka|rabbitmq|nats"
-find . -name "service.yaml" -o -name "deployment.yaml"
+# File counts by type
+find . -type f | grep -vE "node_modules|venv|vendor" | sed 's/.*\.//' | sort | uniq -c | sort -rn | head -15
 
-# Event-driven patterns
-rg -l "event.*emitter|publish|subscribe|on\(|addEventListener"
-
-# Layered architecture
-ls -la src/ | grep -E "(controllers?|services?|repositories?|models?|views?)"
-```
-
-### Phase 3: Component Deep Dive
-
-**For Each Major Component:**
-
-1. **Entry Points**
-   ```bash
-   # Web: Routes/endpoints
-   rg "(@app.route|@router|app.get|app.post|Route)" --type py --type js --type go
-   
-   # CLI: Commands
-   rg "(command|subcommand|flag|arg)" cmd/ cli/
-   
-   # Background: Jobs/workers
-   rg "(task|job|worker|celery|sidekiq)" 
-   ```
-
-2. **Data Models**
-   ```bash
-   # Database models
-   rg "(class.*Model|Schema|Entity|@entity)" models/ entities/
-   
-   # ORMs
-   rg "(sequelize|mongoose|sqlalchemy|gorm|diesel)" 
-   
-   # Schema files
-   find . -name "schema.*" -o -name "migrations/" -o -name "*.prisma"
-   ```
-
-3. **Business Logic**
-   ```bash
-   # Services/use cases
-   find . -path "*/services/*" -o -path "*/usecases/*" -o -path "*/domain/*"
-   
-   # Core algorithms
-   rg "class.*Service|class.*Handler|class.*Processor"
-   ```
-
-4. **External Dependencies**
-   ```bash
-   # API clients
-   rg "(requests\.|axios|fetch|http\.get|http\.post)" 
-   
-   # Database connections
-   rg "(connect|createConnection|newDB|sql\.open)"
-   
-   # Message queues
-   rg "(kafka|rabbitmq|redis|sqs|pubsub)"
-   ```
-
----
-
-## Language-Specific Patterns
-
-### Python
-
-**Structure Discovery:**
-```bash
-# Find packages
-find . -name "__init__.py" -type f | sed 's/__init__.py//' 
-
-# Main entry points
-find . -name "__main__.py" -o -name "main.py" -o -name "app.py"
-
-# Django/Flask apps
-rg "Django|Flask|FastAPI|from django|from flask|from fastapi"
-
-# Key patterns
-rg "class.*\(.*\):|def |@decorator|if __name__"
-```
-
-**Important Conventions:**
-- `__init__.py` - Package marker
-- `settings.py` / `config.py` - Configuration
-- `models.py` - Data models
-- `views.py` / `routes.py` - Request handlers
-- `forms.py` - Form definitions
-- `serializers.py` - Data serialization
-- `tasks.py` - Background jobs (Celery)
-- `tests/test_*.py` - Tests
-
-### JavaScript/TypeScript
-
-**Structure Discovery:**
-```bash
-# Entry points
-find . -name "index.js" -o -name "index.ts" -o -name "main.js" -o -name "app.js"
-
-# Module types
-cat package.json | jq '.type' # "module" or "commonjs"
-
-# Framework detection
-rg "from 'react'|from 'vue'|from 'angular'|from 'next'|from 'express'"
-
-# Key patterns
-rg "export |import |class |function |const.*=.*\(|interface "
-```
-
-**Important Conventions:**
-- `index.ts/js` - Module entry point
-- `package.json` - Dependencies and scripts
-- `tsconfig.json` - TypeScript configuration
-- `src/` - Source code
-- `dist/` or `build/` - Compiled output
-- `components/` - React/Vue components
-- `routes/` or `pages/` - Routing
-- `*.test.ts` / `*.spec.ts` - Tests
-
-### Go
-
-**Structure Discovery:**
-```bash
-# Module and packages
-cat go.mod
-find . -name "*.go" -type f | xargs dirname | sort -u
-
-# Main packages
-rg "^package main" --type go
-
-# Key patterns
-rg "func |type |interface |struct |package " --type go
-```
-
-**Important Conventions:**
-- `main.go` - Entry point
-- `go.mod` / `go.sum` - Dependencies
-- `cmd/` - Main applications
-- `pkg/` - Public libraries
-- `internal/` - Private code
-- `*_test.go` - Tests
-
-### Rust
-
-**Structure Discovery:**
-```bash
-# Cargo workspace
-cat Cargo.toml
-
-# Modules
-rg "^mod |^pub mod |^use " --type rust
-
-# Entry point
-cat src/main.rs src/lib.rs
-```
-
-**Important Conventions:**
-- `Cargo.toml` - Package manifest
-- `src/main.rs` - Binary entry
-- `src/lib.rs` - Library entry
-- `src/bin/` - Multiple binaries
-- `tests/` - Integration tests
-- `benches/` - Benchmarks
-
-### Java
-
-**Structure Discovery:**
-```bash
-# Maven/Gradle
-cat pom.xml build.gradle
-
-# Package structure
-find . -name "*.java" | sed 's|/[^/]*\.java||' | sort -u
-
-# Spring Boot
-rg "@SpringBootApplication|@RestController|@Service|@Repository" --type java
-```
-
-**Important Conventions:**
-- `src/main/java/` - Source code
-- `src/main/resources/` - Configuration
-- `src/test/java/` - Tests
-- `Application.java` - Spring Boot entry
-- `pom.xml` / `build.gradle` - Dependencies
-
----
-
-## Analysis Checkpoints
-
-### Security & Auth
-```bash
-# Authentication
-rg "authenticate|login|logout|session|jwt|token|passport"
-
-# Authorization
-rg "authorize|permission|role|@requires|@secured|middleware.*auth"
-
-# Secrets management
-rg "process\.env|os\.getenv|ENV\[|config\.|dotenv"
-find . -name ".env.example" -o -name "secrets.yaml"
-```
-
-### Database & Storage
-```bash
-# Schema
-find . -name "schema.sql" -o -name "models.py" -o -name "*.prisma"
-find . -path "*/migrations/*"
-
-# ORM/Query builders
-rg "sequelize|typeorm|mongoose|sqlalchemy|diesel|gorm|prisma"
-
-# Database connections
-rg "createConnection|connect.*mongo|pool|db\.connect"
-```
-
-### API Design
-```bash
-# REST endpoints
-rg "@(Get|Post|Put|Delete|Patch)|@app\.(get|post)|router\.(get|post)"
-
-# GraphQL
-find . -name "*.graphql" -o -name "schema.gql"
-rg "type Query|type Mutation|resolvers"
-
-# API documentation
-find . -name "openapi.yaml" -o -name "swagger.json"
-rg "@api|@swagger"
-```
-
-### Configuration
-```bash
-# Environment variables
-rg "process\.env\.|os\.getenv|ENV\[" | cut -d: -f1 | sort -u
-find . -name ".env.example"
-
-# Config files
-find . -name "config.yaml" -o -name "settings.json" -o -name "*.toml"
-
-# Feature flags
-rg "feature.*flag|toggle|experiment"
-```
-
-### Error Handling
-```bash
-# Error patterns
-rg "try.*catch|except|Result<|Error|panic|throw new"
-
-# Logging
-rg "logger|log\.|console\.(log|error|warn)|print|fmt\.Print"
-
-# Monitoring
-rg "sentry|datadog|newrelic|prometheus|opentelemetry"
-```
-
-### Testing Strategy
-```bash
-# Test files
-find . -name "*test*" -o -name "*spec*" | head -20
-
-# Test frameworks
-rg "pytest|jest|mocha|junit|testify|cargo test"
-
-# Coverage
-find . -name ".coverage" -o -name "coverage/"
-cat package.json | jq '.scripts.test'
-```
-
-### Build & Deploy
-```bash
-# Build systems
-find . -name "Makefile" -o -name "build.sh" -o -name "Dockerfile"
-
-# CI/CD
-find . -path "*/.github/workflows/*" -o -path "*/.gitlab-ci.yml"
-
-# Package/Docker
-cat Dockerfile docker-compose.yml
-
-# Scripts
-cat package.json | jq '.scripts'
+# Likely entry points
+find . -maxdepth 3 -type f \( -name "main.*" -o -name "index.*" -o -name "app.*" -o -name "__main__.py" \) \
+  | grep -vE "node_modules|venv"
 ```
 
 ---
 
-## Data Flow Tracing
+## Step 2: Identify Architecture
 
-**Trace a Request/Flow:**
+**Project type** — pick the best fit:
+- **Frontend SPA** — `src/components/`, framework in `package.json` (`react`, `vue`, `angular`, `next`)
+- **Backend API** — `routes/` or `controllers/`, look for OpenAPI spec
+- **CLI tool** — `cmd/` or `cli/`, look for `cobra`, `click`, `argparse`
+- **Library/SDK** — `src/` or `lib/`, exported `index.ts` or `__init__.py`
+- **Microservices** — multiple `services/` subdirs, proto files, message broker config
+- **Monorepo** — `packages/` or `apps/`, workspace config in manifest
 
-1. **Find Entry Point**
-   ```bash
-   # Web: Find route definition
-   rg "'/api/users'" routes/ api/
-   
-   # CLI: Find command
-   rg "command.*'create'|@click.command"
-   ```
+**Architecture style** — pick the best fit:
+- **Layered** — `models/`, `views/`, `controllers/` (or equivalent)
+- **Clean/Hexagonal** — `domain/`, `application/`, `infrastructure/`, `interfaces/`
+- **Event-driven** — `events/`, `handlers/`, `subscribers/`, message broker clients
+- **Flat** — no strong layering; trace from entry point directly
 
-2. **Follow the Call Chain**
-   - Controller/Handler → Service → Repository → Database
-   - Use IDE "Go to Definition" or:
-   ```bash
-   rg "def process_user|function processUser|func ProcessUser"
-   ```
-
-3. **Map Data Transformations**
-   - Request → DTO → Domain Model → Entity → Database
-   - Track validation, serialization, transformation
-
-4. **Identify Side Effects**
-   ```bash
-   # External calls
-   rg "requests\.|fetch\(|http\." file_with_logic.py
-   
-   # Database writes
-   rg "save\(|insert|update|delete|commit"
-   
-   # Events/Messages
-   rg "publish|emit|send.*message|trigger"
-   ```
-
----
-
-## Automated Analysis Tools
-
-### Structure Analysis Script
+Quick check:
 ```bash
-./scripts/analyze-structure.sh /path/to/codebase
+rg -l "class.*Controller|class.*Service|class.*Repository|class.*Handler" 2>/dev/null | head -10
 ```
 
-Outputs:
-- File count by language
-- Directory structure visualization
-- Entry point identification
-- Configuration file listing
-- Test coverage overview
+---
 
-### Dependency Mapping Script
+## Step 3: Trace One Key Flow
+
+Pick the most important user-facing action and trace it fully before anything else.
+
+**1. Find the entry point:**
 ```bash
-./scripts/map-dependencies.sh /path/to/codebase
+# Web API routes
+rg "(@app\.route|@router\.|app\.get|app\.post|router\.get|router\.post)" | head -20
+# CLI commands
+rg "(click\.command|cobra\.Command|argparse\.add_argument)" | head -10
 ```
 
-Outputs:
-- External dependencies with versions
-- Internal module dependency graph
-- Circular dependency detection
-- Unused dependency warnings
-
----
-
-## Documentation Templates
-
-After analysis, use these templates to document findings:
-
-### Architecture Overview
-See: [examples/architecture-template.md](examples/architecture-template.md)
-
-Contents:
-- System architecture diagram
-- Component descriptions
-- Technology stack
-- Data flow overview
-- Key design decisions
-
-### Component Map
-See: [examples/component-map.template.md](examples/component-map-template.md)
-
-Contents:
-- Component relationship matrix
-- Interface definitions
-- Dependency graph
-- Responsibility mapping
-
----
-
-## Context-Specific Analysis
-
-### Onboarding (Comprehensive Understanding)
-**Goal:** Build complete mental model
-
-Priority:
-1. Run the application locally
-2. Understand the "happy path" user flows
-3. Map all major components
-4. Read architecture docs and ADRs
-5. Run and read tests
-
-Time: 2-4 hours for medium codebase
-
-### Bug Investigation (Targeted Analysis)
-**Goal:** Understand specific failure
-
-Priority:
-1. Reproduce the bug
-2. Read error logs and stack traces
-3. Trace the failing flow end-to-end
-4. Examine related tests
-5. Check recent changes (git blame/log)
-
-Time: 20-60 minutes
-
-### Feature Addition (Impact Analysis)
-**Goal:** Understand where and how to add feature
-
-Priority:
-1. Find similar existing features
-2. Map affected components
-3. Identify integration points
-4. Review testing requirements
-5. Check for configuration changes
-
-Time: 30-90 minutes
-
-### Refactoring (Structural Understanding)
-**Goal:** Understand current design to improve it
-
-Priority:
-1. Map current component boundaries
-2. Identify coupling and dependencies
-3. Understand data flows
-4. Review test coverage
-5. Identify technical debt
-
-Time: 1-3 hours
-
-### Security Audit (Attack Surface Mapping)
-**Goal:** Identify security vulnerabilities
-
-Priority:
-1. Map all input boundaries
-2. Trace authentication flows
-3. Review authorization checks
-4. Check secret management
-5. Examine data validation
-
-Time: 2-4 hours
-
----
-
-## Common Codebase Patterns
-
-### MVC (Model-View-Controller)
-```
-models/         - Data structures
-views/          - Templates/UI
-controllers/    - Request handlers
-```
-
-### Clean/Hexagonal Architecture
-```
-domain/         - Business logic (pure)
-application/    - Use cases
-infrastructure/ - External integrations
-interfaces/     - Controllers, presenters
-```
-
-### Microservices
-```
-services/
-  ├── user-service/
-  ├── order-service/
-  └── payment-service/
-shared/         - Common libraries
-infrastructure/ - K8s, configs
-```
-
-### Repository Pattern
-```
-repositories/   - Data access layer
-services/       - Business logic
-controllers/    - API layer
-models/         - Domain entities
-```
-
----
-
-## Quick Reference Commands
-
-### Find All Functions/Classes
+**2. Follow the call chain** — handler → service → repository → external:
 ```bash
-# Python
-rg "^(class |def )" --type py
-
-# JavaScript/TypeScript
-rg "(class |function |const.*=.*=>)" --type js --type ts
-
-# Go
-rg "^func " --type go
-
-# Rust
-rg "^(pub )?fn |^(pub )?struct |^(pub )?trait " --type rust
+rg "def <function_name>|function <function_name>|func <FunctionName>" .
 ```
 
-### Find All Imports/Dependencies
+**3. Map data transformations** — what shape enters and exits each layer.
+
+**4. Spot side effects:**
 ```bash
-# Python
-rg "^(import |from .* import)" --type py | sort -u
-
-# JavaScript
-rg "^(import |const.*require)" --type js
-
-# Go
-rg "^import " --type go
+rg "(\.save\(|\.create\(|insert|update|delete|commit|publish|emit|send)" path/to/file
 ```
 
-### Find Public API Surface
+**5. Check for auth gates on this flow:**
 ```bash
-# Python: Look for __all__ or public functions
-rg "^__all__|^def [^_]|^class [^_]" --type py
-
-# TypeScript: Exported items
-rg "^export " --type ts
-
-# Go: Capitalized (public) functions
-rg "^func [A-Z]" --type go
-
-# Rust: pub items
-rg "^pub (fn|struct|enum|trait)" --type rust
+rg "(authenticate|authorize|@login_required|middleware.*auth)" path/to/route_file
 ```
 
-### Find Configuration Usage
+---
+
+## Step 4: Verify Your Model
+
 ```bash
-# Environment variables being accessed
-rg "process\.env\.|os\.getenv|ENV\[|System\.getenv"
+# Do tests cover the flow you traced?
+find . -name "*test*" -o -name "*spec*" | xargs grep -l "<function_name>" 2>/dev/null
 
-# Config file loading
-rg "config\.|settings\.|loadConfig|readConfig"
+# What changed recently in the key files?
+git log --oneline -15 -- path/to/key/file
+
+# Any other callers you missed?
+rg "<function_name>" . | grep -v "_test\."
+```
+
+Flag it if: tests are absent, git log shows frequent churn, or you find callers you hadn't expected.
+
+---
+
+## Step 5: Summarize
+
+Write this before making any changes:
+
+```
+Project type    : e.g. REST API — Python/FastAPI
+Architecture    : e.g. Layered — routes → services → repositories
+Flow traced     : e.g. POST /orders → OrderService.create → OrderRepo.save → DB
+Key entry points: [files]
+External deps   : [APIs, DBs, queues]
+Risks/gotchas   : [e.g. no auth on admin endpoints, soft deletes]
+Test coverage   : [e.g. good unit coverage on services, no integration tests]
 ```
 
 ---
 
-## Tips & Best Practices
+## Gotchas
 
-### Progressive Disclosure
-- Don't try to understand everything at once
-- Start with boundaries and contracts
-- Zoom in only when needed
-- Document as you go
-
-### Pattern Recognition
-- Look for familiar frameworks and paradigms
-- Identify naming conventions early
-- Notice repeated structures
-- Compare with similar projects
-
-### Ask Questions
-When stuck:
-- "What problem does this solve?"
-- "How does data flow through here?"
-- "What would break if I removed this?"
-- "Where is this used?"
-
-### Verify Understanding
-- Run the code locally
-- Make a small change and see what breaks
-- Read and run tests
-- Draw diagrams and check them against code
-
-### Time Management
-- Set time boxes for exploration
-- Focus on the most relevant parts
-- Document key findings early
-- Don't get lost in rabbit holes
+- **Soft deletes** — queries without `WHERE deleted_at IS NULL` silently return deleted records.
+- **Generated code** — `build/`, `dist/`, `*.pb.go`, `*.generated.ts` are outputs; trace back to the source generator.
+- **Monkey-patching** — Python/Ruby may override methods at runtime (`setattr`, `module_eval`).
+- **Implicit globals** — DB connections, config objects, caches that don't appear in function signatures.
+- **ID aliasing** — the same entity may be `user_id` in the DB, `uid` in auth, `accountId` in billing.
+- **Dead code** — unused files and imports survive in active repos; don't read code that isn't reachable.
+- **Feature flags** — `if feature_enabled("X")` wrappers can hide the real behavior; check for them.
+- **Env-specific branches** — `if ENV == "production"` logic may be the actual critical path.
 
 ---
 
-## Common Gotchas
+## Adjust Depth by Goal
 
-- **Hidden configuration** - Check environment variables, config services
-- **Generated code** - Look for `// generated`, `build/`, `dist/`
-- **Monkey patching** - Dynamic language runtime modifications
-- **Implicit dependencies** - Globals, singletons, service locators
-- **Legacy code** - Mixed patterns, different styles
-- **Dead code** - Unused imports, functions, entire files
-
----
-
-## Success Criteria
-
-You understand the codebase when you can:
-
-✅ Explain the system architecture to someone else  
-✅ Trace a user action from UI to database and back  
-✅ Find where to add a new feature  
-✅ Identify the impact of proposed changes  
-✅ Answer "why does X work this way?"  
-✅ Navigate to any component without searching  
-✅ Predict what will break when you change Y  
-
----
-
-## Resources
-
-- **Scripts**: See `scripts/` for automated analysis tools
-- **Templates**: See `examples/` for documentation templates
-- **IDE Tools**: Use "Find Usages", "Go to Definition", "Call Hierarchy"
-- **Visualization**: Consider tools like `tree`, `graphviz`, dependency-cruiser
+| Goal | Start here | Time |
+|------|-----------|------|
+| Bug investigation | Reproduce → stack trace → trace failing flow → `git log` | 20–60 min |
+| Feature addition | Find the closest analogous existing feature; use it as template | 30–90 min |
+| Onboarding | All 5 steps, then run locally and read tests | 2–4 hrs |
+| Refactoring | Map component boundaries and coupling before touching anything | 1–3 hrs |
+| Security audit | Map all input boundaries → auth flows → secret handling | 2–4 hrs |
