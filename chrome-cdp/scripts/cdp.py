@@ -78,6 +78,25 @@ def runtime_dir() -> Path:
 
 RUNTIME_DIR = runtime_dir()
 PAGES_CACHE = RUNTIME_DIR / "pages.json"
+BROWSER_DATA_BEGIN = "--- BEGIN BROWSER DATA ---"
+BROWSER_DATA_END = "--- END BROWSER DATA ---"
+BROWSER_DATA_COMMANDS = {
+    "list",
+    "ls",
+    "snap",
+    "snapshot",
+    "eval",
+    "html",
+    "net",
+    "network",
+    "console",
+    "cookies",
+    "storage",
+}
+
+
+def wrap_browser_data(text: str) -> str:
+    return f"{BROWSER_DATA_BEGIN}\n{text}\n{BROWSER_DATA_END}"
 
 
 def secure_write_text(path: Path, text: str, mode: int = 0o600) -> None:
@@ -1659,7 +1678,7 @@ def main(argv: list[str]) -> int:
     if cmd in {"list", "ls"}:
         pages = live_pages()
         write_pages_cache(pages)
-        print(format_page_list(pages))
+        print(wrap_browser_data(format_page_list(pages)))
         return 0
 
     if cmd == "open":
@@ -1789,7 +1808,8 @@ def main(argv: list[str]) -> int:
 
     if response.get("ok"):
         if response.get("result"):
-            print(response["result"])
+            result = str(response["result"])
+            print(wrap_browser_data(result) if cmd in BROWSER_DATA_COMMANDS else result)
         return 0
 
     raise CLIError(str(response.get("error", "Daemon command failed")))
