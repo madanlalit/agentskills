@@ -1565,6 +1565,8 @@ def write_pages_cache(pages: list[dict[str, Any]]) -> None:
 
 
 def stop_daemons(target_prefix: str | None) -> None:
+    stopped = 0
+    requested = 0
     targets: list[str]
     if target_prefix:
         candidate_targets: list[str] = []
@@ -1572,6 +1574,7 @@ def stop_daemons(target_prefix: str | None) -> None:
             candidate_targets.extend(page["targetId"] for page in read_json(PAGES_CACHE))
         candidate_targets.extend(path.stem.removeprefix("cdp-") for path in RUNTIME_DIR.glob("cdp-*.json"))
         if not candidate_targets:
+            print(f"No daemons found for target prefix {target_prefix}")
             return
         targets = [resolve_prefix(target_prefix, sorted(set(candidate_targets)), "target")]
     else:
@@ -1585,8 +1588,19 @@ def stop_daemons(target_prefix: str | None) -> None:
             meta = read_json(meta_path)
             with connect_to_daemon(meta) as conn:
                 send_command(conn, meta, daemon_request("stop", []))
+            requested += 1
+            for _ in range(10):
+                if not meta_path.exists():
+                    stopped += 1
+                    break
+                time.sleep(0.1)
         except Exception:
             safe_unlink(meta_path)
+    target_label = f" for target prefix {target_prefix}" if target_prefix else ""
+    if requested == stopped:
+        print(f"Stopped and verified {stopped} daemon(s){target_label}.")
+    else:
+        print(f"Stop requested for {requested} daemon(s){target_label}; verified {stopped} stopped.")
 
 
 USAGE = """cdp.py - lightweight Chrome DevTools Protocol CLI in Python
