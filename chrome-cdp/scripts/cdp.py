@@ -761,6 +761,20 @@ def net_str(cdp: CDP, session_id: str) -> str:
     )
 
 
+def activate_target(cdp: CDP, target_id: str) -> str:
+    cdp.send("Target.activateTarget", {"targetId": target_id})
+    pages = get_pages(cdp)
+    page = next((item for item in pages if item.get("targetId") == target_id), None)
+    title = str(page.get("title", "")).strip() if page else ""
+    url = str(page.get("url", "")).strip() if page else ""
+    suffix = ""
+    if title:
+        suffix += f' "{title[:80]}"'
+    if url:
+        suffix += f" {url}"
+    return f"Activated tab {target_id[:8]}{suffix}"
+
+
 def click_str(cdp: CDP, session_id: str, selector: str) -> str:
     if not selector:
         raise CLIError("CSS selector required")
@@ -1321,6 +1335,48 @@ def daemon_request(command: str, args: list[str]) -> dict[str, Any]:
     return {"cmd": command, "args": args}
 
 
+def doctor_str() -> str:
+    lines = [
+        f"runtime dir: {RUNTIME_DIR}",
+        f"pages cache: {'present' if PAGES_CACHE.exists() else 'missing'}",
+    ]
+
+    meta_files = sorted(RUNTIME_DIR.glob("cdp-*.json"))
+    alive = 0
+    stale = 0
+    for meta_path in meta_files:
+        try:
+            meta = read_json(meta_path)
+            with connect_to_daemon(meta) as conn:
+                send_command(conn, meta, daemon_request("list", []))
+            alive += 1
+        except Exception:
+            stale += 1
+    lines.append(f"daemons: {alive} alive, {stale} stale, {len(meta_files)} metadata file(s)")
+
+    try:
+        ws_url = get_ws_url()
+        lines.append(f"devtools ws: ok ({ws_url})")
+    except Exception as exc:
+        lines.append(f"devtools ws: FAIL ({exc})")
+        return "\n".join(lines)
+
+    cdp = CDP()
+    try:
+        cdp.connect(ws_url)
+        pages = get_pages(cdp)
+        lines.append(f"chrome connect: ok ({len(pages)} real page(s))")
+        if pages:
+            first = pages[0]
+            lines.append(f"first page: {str(first.get('targetId', ''))[:8]} {first.get('url', '')}")
+    except Exception as exc:
+        lines.append(f"chrome connect: FAIL ({exc})")
+    finally:
+        cdp.close()
+
+    return "\n".join(lines)
+
+
 def run_daemon(target_id: str) -> None:
     cdp = CDP()
     try:
@@ -1665,7 +1721,9 @@ Usage: python3 scripts/cdp.py <command> [args]
   console <target>                  Fetch recent console logs
   loadall <target> <selector> [ms]  Click a "load more" selector until it disappears
   evalraw <target> <method> [json]  Send a raw CDP command; returns JSON result
-  open  [url]                       Open a new tab (default: about:blank)
+  activate <target>                 Focus a tab in Chrome
+  open  [url] [--attach]            Open a new tab and optionally attach a daemon now
+  doctor                            Show Chrome/discovery/daemon diagnostics
   stop  [target]                    Stop daemon(s)
 
 <target> is a unique targetId prefix from "list". If a prefix is ambiguous,
@@ -1703,6 +1761,7 @@ NEEDS_TARGET = {
     "console",
     "loadall",
     "evalraw",
+    "activate",
 }
 
 
@@ -1731,8 +1790,18 @@ def main(argv: list[str]) -> int:
         print(wrap_browser_data(format_page_list(pages)))
         return 0
 
+    if cmd == "doctor":
+        print(doctor_str())
+        return 0
+
     if cmd == "open":
-        url = args[0] if args else "about:blank"
+        attach = False
+        url = "about:blank"
+        for arg in args:
+            if arg == "--attach":
+                attach = True
+            else:
+                url = arg
         cdp = CDP()
         cdp.connect(get_ws_url())
         try:
@@ -1745,7 +1814,15 @@ def main(argv: list[str]) -> int:
             cdp.close()
         short_id = target_id[:8] if target_id else "unknown"
         print(f"Opened new tab: {short_id}  {url}")
-        print('Note: this tab will need "Allow debugging?" approval on first access.')
+        if attach and target_id:
+            try:
+                with connect_to_daemon_context(target_id):
+                    pass
+                print(f"Attached daemon to {short_id}.")
+            except Exception as exc:
+                print(f"Attach failed for {short_id}: {exc}")
+        else:
+            print('Note: this tab will need "Allow debugging?" approval on first access.')
         return 0
 
     if cmd == "stop":
@@ -1768,6 +1845,18 @@ def main(argv: list[str]) -> int:
         "target",
         'Run "python3 scripts/cdp.py list".',
     )
+
+    if cmd == "activate":
+        cdp = CDP()
+        cdp.connect(get_ws_url())
+        try:
+            message = activate_target(cdp, target_id)
+            pages = get_pages(cdp)
+            write_pages_cache(pages)
+        finally:
+            cdp.close()
+        print(message)
+        return 0
 
     with connect_to_daemon_context(target_id) as (conn, meta):
         if cmd in {"snap", "snapshot"}:

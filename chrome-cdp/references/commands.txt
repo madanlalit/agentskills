@@ -2,11 +2,13 @@ COMMANDS (Usage: python3 scripts/cdp.py <cmd>)
 <target>: Unique targetId prefix from `list`.
 
 list - List open pages
+doctor - Show Chrome/discovery/daemon diagnostics
 shot <target> [file] [--full] - Screenshot viewport or full page. Output includes DPR (CSS px = screenshot px / DPR)
 snap <target> [--full] - Accessibility tree snapshot
 eval <target> <expr> - Evaluate JS. Avoid index-based selection when DOM may change
 nav <target> <url> - Navigates and waits for page load
 wait <target> <selector|--gone selector|--idle> [--timeout 15000] - Polls condition. Default 15s
+activate <target> - Focus a tab in Chrome
 click <target> <selector> - Click CSS selector (scrolls into view first)
 clickxy <target> <x> <y> - Click at CSS pixel coordinates
 hover <target> <selector|x y> - Hover element or coordinates
@@ -23,7 +25,7 @@ pdf <target> [file] - Save page as PDF
 console <target> - Recent console logs/errors
 loadall <target> <selector> [ms]
 evalraw <target> <method> [json]
-open [url] - Open new tab
+open [url] [--attach] - Open new tab and optionally attach a daemon immediately
 stop [target] - Stop daemon
 
 NOTES
