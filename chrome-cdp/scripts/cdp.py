@@ -94,6 +94,8 @@ BROWSER_DATA_COMMANDS = {
     "cookies",
     "storage",
 }
+NETWORK_LOG_LIMIT = 200
+DOWNLOAD_LOG_LIMIT = 50
 
 
 def wrap_browser_data(text: str) -> str:
@@ -167,6 +169,71 @@ def is_real_page(page: dict[str, Any]) -> bool:
     if not url:
         return True
     return not url.startswith(INTERNAL_PAGE_PREFIXES)
+
+
+def human_bytes(value: Any) -> str:
+    try:
+        size = float(value)
+    except (TypeError, ValueError):
+        return "?"
+    units = ["B", "KB", "MB", "GB"]
+    unit = 0
+    while size >= 1024 and unit < len(units) - 1:
+        size /= 1024.0
+        unit += 1
+    if unit == 0:
+        return f"{int(size)}{units[unit]}"
+    return f"{size:.1f}{units[unit]}"
+
+
+def trim_state_map(entries: dict[str, dict[str, Any]], limit: int) -> None:
+    if len(entries) <= limit:
+        return
+    oldest = sorted(entries.items(), key=lambda item: item[1].get("seq", 0))
+    for key, _value in oldest[: len(entries) - limit]:
+        entries.pop(key, None)
+
+
+def format_network_log(entries: list[dict[str, Any]]) -> str:
+    if not entries:
+        return "No network requests captured."
+    lines = []
+    for entry in sorted(entries, key=lambda item: item.get("seq", 0)):
+        status = "..."
+        if entry.get("error"):
+            status = "FAIL"
+        elif entry.get("status") is not None:
+            status = str(entry["status"])
+        size = human_bytes(entry.get("encodedDataLength"))
+        resource_type = str(entry.get("resourceType") or "?")[:10].ljust(10)
+        method = str(entry.get("method") or "GET")[:6].ljust(6)
+        url = str(entry.get("url") or "")
+        line = f"{status:>4}  {resource_type}  {size:>8}  {method}  {url}"
+        if entry.get("error"):
+            line += f"  ({entry['error']})"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def parse_download_args(args: list[str]) -> tuple[Path, int]:
+    timeout_ms = 15000
+    directory: Path | None = None
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--wait":
+            i += 1
+            if i >= len(args):
+                raise CLIError("--wait requires a timeout in ms")
+            timeout_ms = int(args[i])
+        elif directory is None:
+            directory = Path(arg).expanduser()
+        else:
+            raise CLIError(f"Unexpected download argument: {arg}")
+        i += 1
+    if directory is None:
+        directory = RUNTIME_DIR / "downloads"
+    return directory, timeout_ms
 
 
 def get_ws_url() -> str:
@@ -1281,6 +1348,47 @@ def pdf_str(cdp: CDP, session_id: str, file_path: str | None, target_id: str) ->
     return f"PDF saved: {output}"
 
 
+def upload_str(cdp: CDP, session_id: str, selector: str, paths: list[str]) -> str:
+    if not selector:
+        raise CLIError("CSS selector required")
+    if not paths:
+        raise CLIError("At least one file path is required")
+
+    files: list[str] = []
+    for raw_path in paths:
+        path = Path(raw_path).expanduser().resolve()
+        if not path.exists():
+            raise CLIError(f"File not found: {path}")
+        if not path.is_file():
+            raise CLIError(f"Not a file: {path}")
+        files.append(str(path))
+
+    cdp.send("DOM.enable", {}, session_id=session_id)
+    document = cdp.send("DOM.getDocument", {"depth": 1}, session_id=session_id)
+    root = document.get("root", {})
+    root_id = root.get("nodeId")
+    if not root_id:
+        raise CLIError("Unable to inspect DOM document")
+
+    query = cdp.send("DOM.querySelector", {"nodeId": root_id, "selector": selector}, session_id=session_id)
+    node_id = query.get("nodeId")
+    if not node_id:
+        raise CLIError(f"Element not found: {selector}")
+
+    described = cdp.send("DOM.describeNode", {"nodeId": node_id}, session_id=session_id)
+    node = described.get("node", {})
+    if str(node.get("nodeName", "")).upper() != "INPUT":
+        raise CLIError(f'Element matching "{selector}" is not an <input>')
+
+    attributes = node.get("attributes", [])
+    attrs = dict(zip(attributes[::2], attributes[1::2]))
+    if str(attrs.get("type", "")).lower() != "file":
+        raise CLIError(f'Element matching "{selector}" is not <input type="file">')
+
+    cdp.send("DOM.setFileInputFiles", {"files": files, "nodeId": node_id}, session_id=session_id)
+    return f'Attached {len(files)} file(s) to "{selector}"'
+
+
 def shot_full_str(cdp: CDP, session_id: str, file_path: str | None, target_id: str) -> str:
     """Full-page screenshot using layout metrics."""
     dpr = 1.0
@@ -1397,10 +1505,18 @@ def run_daemon(target_id: str) -> None:
         cdp.close()
         raise SystemExit(1)
 
-    # Enable domains for log capture
+    state_lock = threading.Lock()
+    network_entries: dict[str, dict[str, Any]] = {}
+    download_entries: dict[str, dict[str, Any]] = {}
+    network_seq = 0
+    download_seq = 0
+
+    # Enable domains for log capture and stateful helpers.
     try:
+        cdp.send("Page.enable", {}, session_id=session_id)
         cdp.send("Runtime.enable", {}, session_id=session_id)
         cdp.send("Log.enable", {}, session_id=session_id)
+        cdp.send("Network.enable", {}, session_id=session_id)
     except Exception as exc:
         print(f"Daemon: failed to enable log domains: {exc}", file=sys.stderr)
 
@@ -1447,8 +1563,94 @@ def run_daemon(target_id: str) -> None:
         if params.get("sessionId") == session_id:
             shutdown()
 
+    def on_request_will_be_sent(params: dict[str, Any], message: dict[str, Any]) -> None:
+        nonlocal network_seq
+        if message.get("sessionId") != session_id:
+            return
+        request = params.get("request", {})
+        with state_lock:
+            network_seq += 1
+            network_entries[params.get("requestId", f"req-{network_seq}")] = {
+                "seq": network_seq,
+                "url": request.get("url", ""),
+                "method": request.get("method", "GET"),
+                "resourceType": params.get("type", ""),
+                "status": None,
+                "encodedDataLength": None,
+                "error": None,
+            }
+            trim_state_map(network_entries, NETWORK_LOG_LIMIT)
+
+    def on_response_received(params: dict[str, Any], message: dict[str, Any]) -> None:
+        if message.get("sessionId") != session_id:
+            return
+        request_id = params.get("requestId")
+        response = params.get("response", {})
+        with state_lock:
+            entry = network_entries.get(request_id)
+            if not entry:
+                return
+            entry["status"] = response.get("status")
+            entry["mimeType"] = response.get("mimeType")
+            entry["resourceType"] = params.get("type") or entry.get("resourceType")
+
+    def on_loading_finished(params: dict[str, Any], message: dict[str, Any]) -> None:
+        if message.get("sessionId") != session_id:
+            return
+        request_id = params.get("requestId")
+        with state_lock:
+            entry = network_entries.get(request_id)
+            if not entry:
+                return
+            entry["encodedDataLength"] = params.get("encodedDataLength")
+
+    def on_loading_failed(params: dict[str, Any], message: dict[str, Any]) -> None:
+        if message.get("sessionId") != session_id:
+            return
+        request_id = params.get("requestId")
+        with state_lock:
+            entry = network_entries.get(request_id)
+            if not entry:
+                return
+            entry["error"] = params.get("errorText") or "loading failed"
+
+    def on_download_begin(params: dict[str, Any], _message: dict[str, Any]) -> None:
+        nonlocal download_seq
+        with state_lock:
+            download_seq += 1
+            download_entries[params.get("guid", f"download-{download_seq}")] = {
+                "seq": download_seq,
+                "guid": params.get("guid"),
+                "url": params.get("url", ""),
+                "filename": params.get("suggestedFilename", ""),
+                "state": "started",
+                "receivedBytes": 0,
+                "totalBytes": params.get("totalBytes"),
+            }
+            trim_state_map(download_entries, DOWNLOAD_LOG_LIMIT)
+
+    def on_download_progress(params: dict[str, Any], _message: dict[str, Any]) -> None:
+        guid = params.get("guid")
+        if not guid:
+            return
+        with state_lock:
+            entry = download_entries.get(guid)
+            if not entry:
+                return
+            entry["state"] = params.get("state", entry.get("state"))
+            entry["receivedBytes"] = params.get("receivedBytes", entry.get("receivedBytes"))
+            entry["totalBytes"] = params.get("totalBytes", entry.get("totalBytes"))
+            if params.get("filePath"):
+                entry["filePath"] = params.get("filePath")
+
     cdp.on_event("Target.targetDestroyed", on_target_destroyed)
     cdp.on_event("Target.detachedFromTarget", on_detached)
+    cdp.on_event("Network.requestWillBeSent", on_request_will_be_sent)
+    cdp.on_event("Network.responseReceived", on_response_received)
+    cdp.on_event("Network.loadingFinished", on_loading_finished)
+    cdp.on_event("Network.loadingFailed", on_loading_failed)
+    cdp.on_event("Browser.downloadWillBegin", on_download_begin)
+    cdp.on_event("Browser.downloadProgress", on_download_progress)
     cdp.on_close(shutdown)
 
     def signal_handler(*_: Any) -> None:
@@ -1487,7 +1689,9 @@ def run_daemon(target_id: str) -> None:
             if cmd in {"nav", "navigate"}:
                 return {"ok": True, "result": nav_str(cdp, session_id, args[0])}
             if cmd in {"net", "network"}:
-                return {"ok": True, "result": net_str(cdp, session_id)}
+                with state_lock:
+                    entries = [dict(entry) for entry in network_entries.values()]
+                return {"ok": True, "result": format_network_log(entries)}
             if cmd == "click":
                 return {"ok": True, "result": click_str(cdp, session_id, args[0])}
             if cmd == "clickxy":
@@ -1521,6 +1725,49 @@ def run_daemon(target_id: str) -> None:
                 return {"ok": True, "result": storage_str(cdp, session_id, args)}
             if cmd == "pdf":
                 return {"ok": True, "result": pdf_str(cdp, session_id, args[0] if args else None, target_id)}
+            if cmd == "upload":
+                if len(args) < 2:
+                    return {"ok": False, "error": "upload requires selector and at least one file"}
+                return {"ok": True, "result": upload_str(cdp, session_id, args[0], args[1:])}
+            if cmd == "download":
+                download_dir, timeout_ms = parse_download_args(args)
+                download_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    cdp.send(
+                        "Browser.setDownloadBehavior",
+                        {
+                            "behavior": "allow",
+                            "downloadPath": str(download_dir),
+                            "eventsEnabled": True,
+                        },
+                    )
+                except Exception as exc:
+                    return {"ok": False, "error": f"Unable to enable downloads: {exc}"}
+
+                with state_lock:
+                    since_seq = download_seq
+
+                if timeout_ms <= 0:
+                    return {"ok": True, "result": f"Downloads enabled in {download_dir}"}
+
+                deadline = time.monotonic() + (timeout_ms / 1000.0)
+                while time.monotonic() < deadline:
+                    with state_lock:
+                        recent = [entry for entry in download_entries.values() if entry.get("seq", 0) > since_seq]
+                    completed = [entry for entry in recent if entry.get("state") == "completed"]
+                    if completed:
+                        latest = sorted(completed, key=lambda entry: entry.get("seq", 0))[-1]
+                        file_path = latest.get("filePath") or str(download_dir / latest.get("filename", "download"))
+                        return {
+                            "ok": True,
+                            "result": f"Downloaded {latest.get('filename', 'file')} to {file_path}",
+                        }
+                    failed = [entry for entry in recent if entry.get("state") in {"canceled", "interrupted"}]
+                    if failed:
+                        latest = sorted(failed, key=lambda entry: entry.get("seq", 0))[-1]
+                        return {"ok": False, "error": f"Download {latest.get('state', 'failed')}: {latest.get('filename', '')}"}
+                    time.sleep(0.1)
+                return {"ok": False, "error": f"Timed out waiting for download ({timeout_ms}ms)"}
             if cmd == "stop":
                 return {"ok": True, "result": "", "stopAfter": True}
             return {"ok": False, "error": f"Unknown command: {cmd}"}
@@ -1705,7 +1952,7 @@ Usage: python3 scripts/cdp.py <command> [args]
   shot  <target> [--full] [file]    Screenshot (viewport or --full page)
   html  <target> [selector]         Get full page HTML or element HTML
   nav   <target> <url>              Navigate to URL and wait for load completion
-  net   <target>                    Network performance entries
+  net   <target>                    Recent real CDP network requests for this tab
   click   <target> <selector>       Click an element by CSS selector
   clickxy <target> <x> <y>          Click at CSS pixel coordinates
   type    <target> <text>           Type text at current focus via Input.insertText
@@ -1719,6 +1966,8 @@ Usage: python3 scripts/cdp.py <command> [args]
   storage <target> [--session] [--set k=v]  Read/write localStorage or sessionStorage
   pdf     <target> [file]           Save page as PDF
   console <target>                  Fetch recent console logs
+  upload <target> <sel> <file...>   Attach files to <input type="file">
+  download <target> [dir] [--wait ms]  Enable downloads and wait for one to finish
   loadall <target> <selector> [ms]  Click a "load more" selector until it disappears
   evalraw <target> <method> [json]  Send a raw CDP command; returns JSON result
   activate <target>                 Focus a tab in Chrome
@@ -1759,6 +2008,8 @@ NEEDS_TARGET = {
     "storage",
     "pdf",
     "console",
+    "upload",
+    "download",
     "loadall",
     "evalraw",
     "activate",
@@ -1924,6 +2175,12 @@ def main(argv: list[str]) -> int:
         elif cmd == "console":
             response = send_command(conn, meta, daemon_request(cmd, []))
         elif cmd == "pdf":
+            response = send_command(conn, meta, daemon_request(cmd, list(args[1:])))
+        elif cmd == "upload":
+            if len(args) < 3:
+                raise CLIError("Selector and at least one file path required")
+            response = send_command(conn, meta, daemon_request(cmd, [args[1], *args[2:]]))
+        elif cmd == "download":
             response = send_command(conn, meta, daemon_request(cmd, list(args[1:])))
         elif cmd == "loadall":
             if len(args) < 2:

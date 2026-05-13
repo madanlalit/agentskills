@@ -18,11 +18,13 @@ fill <target> <selector> <text> - Focus, clear, and type. Prefer over click+type
 select <target> <selector> <value> - Set <select> by value/text and dispatch change event
 scroll <target> [selector] <direction> [px] - Directions: up/down/left/right/top/bottom. Default 85% height
 html <target> [selector] - Outer HTML of page or element
-net <target> - Network performance entries
+net <target> - Recent real CDP network requests for this tab
 cookies <target> [--set name=value|--clear] - Manage cookies
 storage <target> [--session|--set key=value] - Manage localStorage/sessionStorage
 pdf <target> [file] - Save page as PDF
 console <target> - Recent console logs/errors
+upload <target> <selector> <file...> - Attach files to <input type="file">
+download <target> [dir] [--wait 15000] - Enable downloads to a directory and wait for one to finish
 loadall <target> <selector> [ms]
 evalraw <target> <method> [json]
 open [url] [--attach] - Open new tab and optionally attach a daemon immediately
