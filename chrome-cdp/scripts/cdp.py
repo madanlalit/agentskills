@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+from urllib.request import urlopen
 
 TIMEOUT = 15.0
 NAVIGATION_TIMEOUT = 30.0
@@ -133,6 +134,41 @@ def daemon_meta_path(target_id: str) -> Path:
     return RUNTIME_DIR / f"cdp-{target_id}.json"
 
 
+INTERNAL_PAGE_PREFIXES = (
+    "chrome://",
+    "chrome-untrusted://",
+    "devtools://",
+    "chrome-extension://",
+    "about:",
+)
+
+
+def read_devtools_active_port(path: Path) -> tuple[str, str]:
+    lines = path.read_text(encoding="utf-8").strip().splitlines()
+    if len(lines) < 2 or not lines[0] or not lines[1]:
+        raise CLIError(f"Invalid DevToolsActivePort file: {path}")
+    return lines[0].strip(), lines[1].strip()
+
+
+def resolve_ws_url_from_http(host: str, port: str, timeout: float = 1.0) -> str | None:
+    try:
+        with urlopen(f"http://{host}:{port}/json/version", timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return None
+    ws_url = payload.get("webSocketDebuggerUrl")
+    return str(ws_url) if ws_url else None
+
+
+def is_real_page(page: dict[str, Any]) -> bool:
+    if page.get("type") != "page":
+        return False
+    url = str(page.get("url", ""))
+    if not url:
+        return True
+    return not url.startswith(INTERNAL_PAGE_PREFIXES)
+
+
 def get_ws_url() -> str:
     home = Path.home()
     mac_browsers = [
@@ -189,12 +225,12 @@ def get_ws_url() -> str:
             "No DevToolsActivePort found. Enable remote debugging at chrome://inspect/#remote-debugging"
         )
 
-    lines = port_file.read_text(encoding="utf-8").strip().splitlines()
-    if len(lines) < 2 or not lines[0] or not lines[1]:
-        raise CLIError(f"Invalid DevToolsActivePort file: {port_file}")
-
     host = os.environ.get("CDP_HOST", "127.0.0.1")
-    return f"ws://{host}:{lines[0]}{lines[1]}"
+    port, ws_path = read_devtools_active_port(port_file)
+    live_ws_url = resolve_ws_url_from_http(host, port)
+    if live_ws_url:
+        return live_ws_url
+    return f"ws://{host}:{port}{ws_path}"
 
 
 def resolve_prefix(prefix: str, candidates: list[str], noun: str = "target", missing_hint: str = "") -> str:
@@ -516,7 +552,7 @@ class CDP:
 def get_pages(cdp: CDP) -> list[dict[str, Any]]:
     result = cdp.send("Target.getTargets")
     target_infos = result.get("targetInfos", [])
-    return [page for page in target_infos if page.get("type") == "page" and not str(page.get("url", "")).startswith("chrome://")]
+    return [page for page in target_infos if is_real_page(page)]
 
 
 def format_page_list(pages: list[dict[str, Any]]) -> str:
