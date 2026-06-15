@@ -4,6 +4,7 @@ A collection of specialized skills for AI Agents.
 
 ## Available Skills
 
+- **ask-me**: Guidelines and procedures for the agent to ask the user questions, clarify requirements, handle missing details, or resolve ambiguities.
 - **chrome-cdp**: Interact with Chromium via Chrome DevTools Protocol.
 - **explain-gh-issue**: Fetch and explain GitHub issues.
 - **langsmith-fetch**: Fetch data and recipes from LangSmith.
