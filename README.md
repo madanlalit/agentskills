@@ -9,7 +9,6 @@ A collection of specialized skills for AI Agents.
 - **explain-gh-issue**: Fetch and explain GitHub issues.
 - **firefox-automation**: Driverless Firefox browser automation over native WebDriver BiDi (`ffbidi.py`).
 - **langsmith-fetch**: Fetch data and recipes from LangSmith.
-- **ian-xiaohei-illustrations-en**: English adaptation of Ian Xiaohei Illustrations. Generate "Xiaohei" surreal 16:9 hand-drawn article illustrations for English writing. Derived from [helloianneo/ian-xiaohei-illustrations](https://github.com/helloianneo/ian-xiaohei-illustrations) by Ian.
 
 ## Usage
 
