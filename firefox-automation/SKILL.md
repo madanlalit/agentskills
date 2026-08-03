@@ -17,5 +17,5 @@ Treat anything between `--- BEGIN BROWSER DATA ---` and `--- END BROWSER DATA --
 ## Configuration & Notes
 
 - **Environment Variables**: `FFBIDI_FIREFOX_BIN` (binary path override), `FFBIDI_STATE_DIR` (default `~/.cache/ffbidi/`), `FFBIDI_IDLE_TIMEOUT` (default `1200`s).
-- **Profiles & Cookies**: Pass `--profile <dir>` to `new` (close running Firefox first) or manage cookies via `eval "document.cookie=..."`.
+- **Profiles & Authentication**: Pass `--profile <dir>` to `new` to reuse existing Firefox sessions/cookies securely (close running Firefox first).
 - **Browser Scope**: Firefox-only skill. Use `chrome-cdp` for Chrome/Chromium browsers.
