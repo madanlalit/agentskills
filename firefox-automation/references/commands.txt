@@ -1,0 +1,55 @@
+COMMANDS (Usage: python3 scripts/ffbidi.py <cmd>)
+
+GLOBAL
+  doctor                 - Environment diagnostics (daemon, browsers, versions)
+  list                   - List active sessions (id, browser, url, trace flags)
+
+LIFECYCLE
+  new [--url URL] [--profile DIR] [--headless] [--trace]
+                         - Launch a Firefox session (native BiDi, driverless); prints session id.
+                           --profile: use an existing Firefox profile dir.
+                           --trace: subscribe to network + console events from the start.
+  stop [--session <id>]  - Close a session (kills browser, cleans temp profile)
+  stop-all               - Close every session
+
+NAVIGATION / CONTENT
+  nav <url> [--session <id>]           - Navigate current tab; waits for load (readyState=complete)
+  eval <expr> [--session <id>]         - Evaluate JS, return JSON (objects/arrays serialized; exceptions reported)
+  html [selector] [--session <id>]     - Outer HTML of whole page or of a CSS selector
+  wait <selector> [--gone] [--timeout N] [--session <id>]
+                                       - Poll until selector exists (or is gone with --gone)
+
+INTERACTION
+  click <selector> [--session <id>]    - Scroll into view + click element center (BiDi pointer actions)
+  hover <selector> [--session <id>]    - Move pointer over element center
+  type <text> [--session <id>]         - Type into the currently focused element
+  fill <selector> <text> [--session <id>] - Focus, clear, and type into a selector
+  press <key> [--session <id>]         - Press a key: Enter, Tab, Escape, Backspace, Delete,
+                                         ArrowUp/Down/Left/Right, Home, End, PageUp/Down, F1-F12,
+                                         Shift, Control, Alt, Meta/Cmd
+
+CAPTURE
+  shot [file] [--full] [--session <id>] - Viewport screenshot (PNG). --full = whole document
+                                         (BiDi captureScreenshot origin=document; Firefox caps
+                                         capture height at 65535px — very long pages fail with
+                                         a clear error; take viewport shots + scroll instead).
+  scroll <up|down|left|right|top|bottom> [px] [--session <id>]
+                                       - Scroll the page (default ~85% of viewport)
+  net [--on|--off|--clear] [--filter sub] [--session <id>]
+                                       - Network capture via BiDi network.* events. --on starts,
+                                         plain call prints buffered request/response events.
+  console [--on|--off|--clear] [--session <id>]
+                                       - Console/log capture via BiDi log.entryAdded (level, text, stack).
+                                         Plain call prints buffered entries.
+
+STATE
+  tabs [--session <id>]                - List browsing contexts (tabs/iframes), mark the active one
+  tab [--url URL] [--session <id>]     - Open a new tab (BiDi browsingContext.create) and make it active
+  activate <context> [--session <id>]  - Focus a tab/context (use the id from `tabs`)
+  cookies [--session <id>]             - All cookies via BiDi storage.getCookies
+  storage [--set key=value] [--session-storage] [--session <id>]
+                                       - Read/write localStorage (or sessionStorage)
+
+SESSION ARG & CONTEXT NOTES
+- <id> can be a full ID or a unique prefix. If omitted and only one session exists, it is auto-selected.
+- Commands target the ACTIVE tab. Switch tabs with `tab` (new tab) or `activate <context>` (existing tab).

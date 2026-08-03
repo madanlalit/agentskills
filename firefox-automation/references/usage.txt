@@ -1,0 +1,49 @@
+USAGE EXAMPLE: Debug a failing LinkedIn connection request (the actual use case)
+
+Scenario: clicking "Connect" on LinkedIn shows "Sorry, invitation not sent to X.
+Please try again." — we want the real server response, not the toast text.
+
+# 1. Launch a browser session (carrying your LinkedIn login)
+#    Option A: reuse your Firefox profile (close Firefox first — profiles lock)
+$ python3 scripts/ffbidi.py new --profile "$HOME/Library/Application Support/Firefox/Profiles/<your-profile-dir>" --trace
+{ "id": "3f9a2c71", "browser": "firefox", ... }
+
+# 2. Go to the person's profile
+$ python3 scripts/ffbidi.py nav --session 3f9a2c71 https://www.linkedin.com/in/vishsuresh
+{ "url": "https://www.linkedin.com/in/vishsuresh/", "readyState": "complete" }
+
+# 3. Turn on network capture (if not started with --trace), then click Connect
+$ python3 scripts/ffbidi.py net --session 3f9a2c71 --on
+$ python3 scripts/ffbidi.py click --session 3f9a2c71 "button[aria-label*='Connect']"
+{ "clicked": "button[aria-label*='Connect']", "at": [812, 420] }
+
+# 4. Inspect the actual API call + response status
+$ python3 scripts/ffbidi.py net --session 3f9a2c71 --filter addaAddConnection
+{
+  "events": [
+    { "type": "request",  "url": "https://www.linkedin.com/flagship-web/rsc-action/actions/server-request?sduiid=...addaAddConnection...", "method": "POST", "status": null },
+    { "type": "completed", "url": "https://www.linkedin.com/flagship-web/rsc-action/actions/server-request?sduiid=...", "method": "POST", "status": 200 }
+  ]
+}
+
+# 5. Pull the response body directly (the toast text hides the real error)
+$ python3 scripts/ffbidi.py eval --session 3f9a2c71 "fetch('/flagship-web/rsc-action/actions/server-request?sduiid=...', {method:'POST', headers:{...}}).then(r=>r.text()).then(t=>t.slice(0,2000))"
+# ...or read the console for JS errors logged by the page
+
+# 6. Done — close the session
+$ python3 scripts/ffbidi.py stop --session 3f9a2c71
+
+------------------------------------------------------------------
+
+GENERAL WORKFLOW (any site)
+
+$ python3 scripts/ffbidi.py new --url https://news.ycombinator.com
+$ python3 scripts/ffbidi.py wait --session <id> .titleline
+$ python3 scripts/ffbidi.py eval --session <id> "Array.from(document.querySelectorAll('.titleline > a')).slice(0,3).map(a=>a.innerText)"
+$ python3 scripts/ffbidi.py shot --session <id> hn.png --full
+
+TROUBLESHOOTING
+- "browser not found"            -> install Firefox or set FFBIDI_FIREFOX_BIN
+- connect timeout on --profile   -> the profile is in use; close that browser first
+- daemon accumulation            -> shouldn't happen; one daemon max is enforced at startup
+- eval returns exception         -> the page threw; the error object + text are returned
